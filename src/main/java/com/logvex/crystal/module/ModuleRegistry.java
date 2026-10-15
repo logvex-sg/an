@@ -1,9 +1,15 @@
 package com.logvex.crystal.module;
 
 import com.logvex.crystal.module.combat.AutoCrystalModule;
+import com.logvex.crystal.module.combat.AutoMineModule;
+import com.logvex.crystal.module.combat.AutoPearlModule;
 import com.logvex.crystal.module.combat.AutoTotemModule;
+import com.logvex.crystal.module.combat.BurrowModule;
+import com.logvex.crystal.module.combat.CityMinerModule;
 import com.logvex.crystal.module.combat.CritAssistModule;
 import com.logvex.crystal.module.combat.HoverTotemModule;
+import com.logvex.crystal.module.combat.SurroundModule;
+import com.logvex.crystal.module.combat.WebAuraModule;
 import com.logvex.crystal.module.hud.CoordsModule;
 import com.logvex.crystal.module.hud.CrystalDamageModule;
 import com.logvex.crystal.module.hud.ModuleListModule;
@@ -32,8 +38,13 @@ import com.logvex.crystal.module.render.BlockEspModule;
 import com.logvex.crystal.module.movement.AutoWalkModule;
 import com.logvex.crystal.module.movement.FastStopModule;
 import com.logvex.crystal.module.movement.SprintModule;
+import com.logvex.crystal.module.player.AutoArmorModule;
 import com.logvex.crystal.module.player.AutoEatModule;
+import com.logvex.crystal.module.player.AutoGappleModule;
+import com.logvex.crystal.module.player.AutoMendModule;
+import com.logvex.crystal.module.player.AutoRefillModule;
 import com.logvex.crystal.module.player.FastPlaceModule;
+import com.logvex.crystal.module.player.OffhandModule;
 import com.logvex.crystal.module.render.SearchModule;
 import com.logvex.crystal.module.render.TracersModule;
 
@@ -47,7 +58,7 @@ import com.logvex.crystal.module.render.TracersModule;
 public final class ModuleRegistry {
 
     /** Number of concrete modules registered; asserted by the registry test. */
-    public static final int EXPECTED_MODULE_COUNT = 48;
+    public static final int EXPECTED_MODULE_COUNT = 59;
 
     private ModuleRegistry() {
     }
@@ -58,6 +69,12 @@ public final class ModuleRegistry {
         manager.register(new AutoTotemModule());
         manager.register(new HoverTotemModule());
         manager.register(new CritAssistModule());
+        manager.register(new SurroundModule());
+        manager.register(new BurrowModule());
+        manager.register(new AutoMineModule());
+        manager.register(new CityMinerModule());
+        manager.register(new WebAuraModule());
+        manager.register(new AutoPearlModule());
         // Movement
         manager.register(new SprintModule());
         manager.register(new AutoWalkModule());
@@ -65,6 +82,11 @@ public final class ModuleRegistry {
         // Player
         manager.register(new AutoEatModule());
         manager.register(new FastPlaceModule());
+        manager.register(new OffhandModule());
+        manager.register(new AutoArmorModule());
+        manager.register(new AutoRefillModule());
+        manager.register(new AutoGappleModule());
+        manager.register(new AutoMendModule());
         // Render
         manager.register(new TracersModule());
         manager.register(new SearchModule());

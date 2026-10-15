@@ -13,10 +13,16 @@ proprietary interface or theme data is copied.
 
 ## What it is (and is not)
 
-* **Is:** a purely client-side mod. It reads world state and draws an interface.
-* **Is not:** a cheat that manipulates the server. It performs no external process
-  interaction, injects nothing into other programs, and never sends anything to the server
-  that the vanilla client would not.
+* **Is:** a client-side mod. It reads world state, draws an interface, and can act on the
+  world the same way the player can — placing blocks, using items and attacking — through the
+  vanilla interaction manager, so the server validates every action for reach and legality
+  exactly as it does for a human click.
+* **Is not:** a client that manipulates the server outside the game's rules. It performs no
+  external process interaction, injects nothing into other programs, and never sends anything
+  to the server that the vanilla client would not.
+* Combat and player modules are **automation of ordinary actions**, not server exploits: they
+  select hotbar slots, click inventory slots, place/break blocks and swing, all through the
+  same code paths as manual play. Read the individual module descriptions for their limits.
 * Commands are handled **locally**. Anarchy servers reject unknown `/` commands, so a line
   starting with `;` (the legacy `.lvx` / `.crystal` still work) is intercepted before it is
   sent and never reaches the server.
@@ -124,6 +130,26 @@ remotely triggered mode. It reads only block-entity *types* in loaded chunks (ne
 contents), and it never forces chunks to load. Settings: scan interval, threshold, cluster
 radius, vertical tolerance, minimum cluster size, duplicate radius, cooldown, player radius,
 notification toggle and chunk radius.
+
+## Combat and player automation
+
+The **Combat** category drives the crystal-PvP loop and the blocks around it; the **Player**
+category keeps the inventory ready for it. Every action is an ordinary game action sent
+through the vanilla `ClientPlayerInteractionManager`, so the server validates reach and
+legality exactly as for manual play — these modules play the game, they do not exploit it.
+
+* **AutoCrystal** — places obsidian, places a crystal, detonates it. A self-damage guard
+  refuses any action that would kill you or exceed your configured self-damage limit.
+* **Surround** / **Burrow** — walls you in with obsidian, or places a block in your own space.
+* **AutoMine** / **CityMiner** — mines the blocks around a target through the vanilla
+  block-breaking progress.
+* **WebAura** — places cobwebs on a target to slow them.
+* **AutoPearl** — throws an ender pearl when the predicted crystal damage would be lethal.
+* **Offhand**, **AutoArmor**, **AutoRefill**, **AutoGapple**, **AutoMend** — keep a totem in
+  the offhand, wear the best armour, stock the hotbar, eat a gapple and mend with bottles.
+
+Each module only uses items the player already carries and only acts on what the client can
+already see. See `combat/CrystalPlanner` for the shared surround/city geometry.
 
 ## ESP and world modules
 

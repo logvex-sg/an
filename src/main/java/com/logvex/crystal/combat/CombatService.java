@@ -13,9 +13,10 @@ import net.minecraft.util.math.Vec3d;
  * Tracks the current combat target and answers damage questions for the HUD and modules.
  *
  * <p>Target selection is deliberately simple and client-side only: the nearest other
- * player within range, preferring one the crosshair is on. This is a read-only observer of
- * world state — it never attacks, moves, or interacts; modules that do act go through
- * vanilla's interaction manager.
+ * player within range, preferring one the crosshair is on. The service itself is a read-only
+ * observer of world state — it never attacks, moves, or interacts. Modules that do act
+ * (AutoCrystal, Surround, Burrow and the rest) go through vanilla's interaction manager,
+ * which is the same path a manual click takes.
  *
  * <p>The service caches its damage predictions per tick so several HUD elements reading
  * them in the same frame cost nothing extra.
