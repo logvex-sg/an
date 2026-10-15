@@ -125,6 +125,28 @@ contents), and it never forces chunks to load. Settings: scan interval, threshol
 radius, vertical tolerance, minimum cluster size, duplicate radius, cooldown, player radius,
 notification toggle and chunk radius.
 
+## ESP and world modules
+
+The **World** category groups read-only world tools. A shared world-query layer caches the
+block entities of loaded chunks once per tick (`world/WorldQuery`), and the ESP filter and
+block-label helpers are shared by every render module, so the ESP set stays small and
+consistent. The block-entity ESP modules never force chunks to load and never read
+container contents — only the block-entity type and position.
+
+* **Render:** PlayerEsp, MobEsp, ItemEsp, ProjectileEsp, ChestEsp, EnderChestEsp, ShulkerEsp,
+  SpawnerEsp, BedEsp, PortalEsp and BlockEsp, on a shared block-entity ESP base.
+* **World readouts:** `WorldInfo` supplies biome, dimension, time, light level and ping to
+  the HUD; `BlockScanner` finds nearby blocks for the ESP modules.
+
+## HUD
+
+HUD elements are toggled by matching modules and laid out by the HUD editor (position,
+scale and opacity per element). Alongside the watermark, module list, target HUD and crystal
+damage indicator, the readouts include biome, time, light level, dimension/ping, entity
+counts, armour durability, potion effects, speed and a WASD keystroke overlay. Compact
+readouts are built from a shared `SimpleHudElement`, so they share the same rounded panel,
+spacing and opacity handling.
+
 ## Themes
 
 Presets: **Default, Femboy, Sakura Pink, Cotton Candy, Lavender Dream, Midnight Kitty,
@@ -200,8 +222,9 @@ refuse a newer schema so a future version's data is never silently downgraded.
 ```
 src/main/java/com/logvex/crystal/
   client/     entrypoint and composition root
-  module/     feature modules by category (combat, movement, player, render, hud, misc)
+  module/     feature modules by category (combat, movement, player, world, render, hud, misc)
   render/     drawing helpers, screen projection, world-space ESP
+  world/      cached block-entity snapshot, world readouts and block scanning
   gui/        ClickGUI, HUD manager, HUD editor, keybind editor, profile manager
   assets/     asset manifest, lazy texture registry and fallback draw helpers
   theme/      presets, settings, engine, immutable palette

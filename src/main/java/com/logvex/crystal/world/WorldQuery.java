@@ -1,7 +1,5 @@
 package com.logvex.crystal.world;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.MinecraftClient;
@@ -14,16 +12,18 @@ import net.minecraft.client.MinecraftClient;
  * one snapshot, refreshed on an interval, that every reader shares.
  *
  * <p>Only block entities in loaded chunks are ever present (the client only tracks those),
- * so a module reading this cannot claim to see into an unloaded chunk. Ticked from the
- * client loop, so the snapshot is built on the client thread and read on the render thread
- * without locking.
+ * so a module reading this cannot claim to see into an unloaded chunk.
+ *
+ * <p>The snapshot is published copy-on-write: a rebuild builds a fresh immutable list and
+ * swaps the reference, and readers take one reference per frame. The tick runs on the client
+ * thread and the render thread reads concurrently, so the reference swap must be atomic
+ * (hence {@code volatile}) and the published list must never be mutated afterwards.
  */
 public final class WorldQuery {
 
     private static WorldQuery instance;
 
-    private final List<BlockEntity> blockEntities = new ArrayList<>();
-    private final List<BlockEntity> view = Collections.unmodifiableList(blockEntities);
+    private volatile List<BlockEntity> snapshot = List.of();
 
     private long lastScanMillis;
     private int intervalMs = 250;
@@ -47,8 +47,8 @@ public final class WorldQuery {
     /** Refreshes the snapshot when the interval has elapsed and a world is loaded. */
     public void tick(MinecraftClient client) {
         if (client == null || client.world == null) {
-            if (!blockEntities.isEmpty()) {
-                blockEntities.clear();
+            if (!snapshot.isEmpty()) {
+                snapshot = List.of();
             }
             return;
         }
@@ -57,23 +57,22 @@ public final class WorldQuery {
             return;
         }
         lastScanMillis = now;
-        blockEntities.clear();
-        blockEntities.addAll(client.world.getBlockEntities());
+        snapshot = List.copyOf(client.world.getBlockEntities());
     }
 
     /** Drops the snapshot immediately (e.g. on disconnect). */
     public void invalidate() {
-        blockEntities.clear();
+        snapshot = List.of();
         lastScanMillis = 0;
     }
 
     /** The current snapshot. Read-only; do not retain across ticks. */
     public List<BlockEntity> blockEntities() {
-        return view;
+        return snapshot;
     }
 
     public int size() {
-        return blockEntities.size();
+        return snapshot.size();
     }
 
     /** Milliseconds since the snapshot was last rebuilt, or -1 before the first scan. */
