@@ -23,7 +23,17 @@ proprietary interface or theme data is copied.
 
 ## Building
 
-Requires **JDK 21** for the toolchain and **JDK 25** to run Gradle (Loom 1.18.4).
+Gradle itself must run on **JDK 25** (Fabric Loom 1.18.4 refuses anything older); the mod
+is compiled against a **JDK 21** toolchain that Gradle provisions automatically. If your
+`java -version` is 17 or 21, run the helper once and point `JAVA_HOME` at what it prints:
+
+```bash
+./scripts/setup-jdk.sh                 # downloads a Java 25 JDK, prints its JAVA_HOME
+export JAVA_HOME="$HOME/.local/logvex-jdk-25"
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
+Then:
 
 ```bash
 ./gradlew build          # compiles, runs the unit tests, produces the jars

@@ -71,8 +71,30 @@ public final class CrystalClient implements ClientModInitializer {
     /** Opt-in headless driver: {@code -Dlogvex.smoke=true -Dlogvex.smoke.ticks=N}. */
     private static final boolean SMOKE = Boolean.getBoolean("logvex.smoke");
     private static final int SMOKE_TICKS = Integer.getInteger("logvex.smoke.ticks", 340);
+    /** Optional directory for dev screenshots of the smoke stages. */
+    private static final String SHOT_DIR = System.getProperty("logvex.smoke.shots", "");
     private int smokeTick;
     private int smokeStage;
+
+    /** Saves a screenshot of the current framebuffer when the dev shot directory is set. */
+    private void shot(String name) {
+        if (SHOT_DIR.isEmpty()) {
+            return;
+        }
+        try {
+            MinecraftClient c = MinecraftClient.getInstance();
+            LOG.info("[shot] {} screen={} tr={} fb={}x{}", name,
+                    c.currentScreen == null ? "null" : c.currentScreen.getClass().getSimpleName(),
+                    c.textRenderer != null,
+                    c.getFramebuffer().textureWidth, c.getFramebuffer().textureHeight);
+            java.io.File dir = new java.io.File(SHOT_DIR);
+            dir.mkdirs();
+            net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(dir,
+                    name + ".png", MinecraftClient.getInstance().getFramebuffer(), 1, text -> {});
+        } catch (Throwable t) {
+            LOG.warn("smoke screenshot failed: {}", name, t);
+        }
+    }
 
     /** The live bootstrap, or null before the client has initialised. */
     public static CrystalClient get() {
@@ -107,7 +129,6 @@ public final class CrystalClient implements ClientModInitializer {
         applyHudVisibility();
 
         commands = new CommandManager(this);
-        clickGui = new ClickGui(modules, config, hud, theme);
 
         registerKeybind();
         registerCallbacks();
@@ -182,7 +203,7 @@ public final class CrystalClient implements ClientModInitializer {
             cosmetics.tick(client);
             while (clickGuiKey.wasPressed()) {
                 if (!(client.currentScreen instanceof ClickGui)) {
-                    clickGui.open();
+                    clickGui().open();
                 }
             }
             handleWorldTransitions(client);
@@ -210,15 +231,17 @@ public final class CrystalClient implements ClientModInitializer {
                 if (smokeTick < 40) {
                     return;
                 }
-                clickGui.open();
+                clickGui().open();
                 require(client.currentScreen instanceof ClickGui, "ClickGUI did not install");
+                require(client.textRenderer != null, "client text renderer was null");
                 smokeStage++;
             }
             case 1 -> {
                 if (smokeTick < 70) {
                     return;
                 }
-                clickGui.showAppearance();
+                shot("01-clickgui-combat");
+                clickGui().showAppearance();
                 require(((ClickGui) client.currentScreen).isAppearance(), "Appearance tab not selected");
                 smokeStage++;
             }
@@ -226,6 +249,7 @@ public final class CrystalClient implements ClientModInitializer {
                 if (smokeTick < 100) {
                     return;
                 }
+                shot("02-clickgui-appearance");
                 for (com.logvex.crystal.theme.ThemePreset preset : com.logvex.crystal.theme.ThemePreset.values()) {
                     theme.applyPreset(preset);
                     require(theme.palette().preset() == preset, "Palette did not switch to " + preset);
@@ -497,7 +521,18 @@ public final class CrystalClient implements ClientModInitializer {
         return commands;
     }
 
+    /**
+     * The ClickGUI, created on first use.
+     *
+     * <p>{@code Screen} captures {@code MinecraftClient.textRenderer} in its constructor, and
+     * that field is still null while {@code onInitializeClient} runs. Building the screen here
+     * (once fonts exist) keeps it from being permanently constructed with a null renderer,
+     * which would make {@code render()} bail out and draw nothing.
+     */
     public ClickGui clickGui() {
+        if (clickGui == null) {
+            clickGui = new ClickGui(modules, config, hud, theme);
+        }
         return clickGui;
     }
 

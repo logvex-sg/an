@@ -79,4 +79,7 @@ tasks.matching { it.name == 'runClient' }.configureEach {
     if (project.hasProperty('smoke')) {
         jvmArgs "-Dlogvex.smoke=true", "-Dlogvex.smoke.ticks=${project.property('smoke')}"
     }
+    if (project.hasProperty('shots')) {
+        jvmArgs "-Dlogvex.smoke.shots=${project.property('shots')}"
+    }
 }
