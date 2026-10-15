@@ -233,7 +233,8 @@ public final class CrystalClient implements ClientModInitializer {
                 }
                 clickGui().open();
                 require(client.currentScreen instanceof ClickGui, "ClickGUI did not install");
-                require(client.textRenderer != null, "client text renderer was null");
+                require(((ClickGui) client.currentScreen).isRenderable(),
+                        "ClickGUI was installed with a null text renderer");
                 smokeStage++;
             }
             case 1 -> {
@@ -524,13 +525,14 @@ public final class CrystalClient implements ClientModInitializer {
     /**
      * The ClickGUI, created on first use.
      *
-     * <p>{@code Screen} captures {@code MinecraftClient.textRenderer} in its constructor, and
+     * <p>{@code Screen} snapshots {@code MinecraftClient.textRenderer} in its constructor, and
      * that field is still null while {@code onInitializeClient} runs. Building the screen here
      * (once fonts exist) keeps it from being permanently constructed with a null renderer,
-     * which would make {@code render()} bail out and draw nothing.
+     * which would make {@code render()} bail out and draw nothing. The stale-instance guard
+     * covers any screen that was nonetheless built early.
      */
     public ClickGui clickGui() {
-        if (clickGui == null) {
+        if (clickGui == null || !clickGui.isRenderable()) {
             clickGui = new ClickGui(modules, config, hud, theme);
         }
         return clickGui;

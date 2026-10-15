@@ -990,6 +990,17 @@ public final class ClickGui extends Screen {
         return appearanceTab;
     }
 
+    /**
+     * True once this screen can actually draw.
+     *
+     * <p>{@code Screen} snapshots {@code MinecraftClient.textRenderer} when it is constructed,
+     * so a screen built before fonts exist holds a null renderer and {@code render()} silently
+     * draws nothing. This lets callers detect that state.
+     */
+    public boolean isRenderable() {
+        return textRenderer != null;
+    }
+
     /** Switches the GUI to the Appearance tab (used by the Theme module and commands). */
     public void showAppearance() {
         appearanceTab = true;
