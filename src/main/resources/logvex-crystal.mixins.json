@@ -4,6 +4,7 @@
   "package": "com.logvex.crystal.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "KeyboardMixin",
     "MinecraftClientAccessor",
     "SplashOverlayMixin",
     "TitleScreenMixin"

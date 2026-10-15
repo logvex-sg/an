@@ -133,6 +133,13 @@ public final class CommandManager {
             case "waypoint", "wp" -> waypoint(args);
             case "friend", "friends" -> friend(args);
             case "gui", "clickgui" -> openGui();
+            case "category", "cat-tab" -> openCategory(args);
+            case "favorites", "favs", "fav" -> openFavorites();
+            case "recent" -> openRecent();
+            case "appearance", "appear" -> openAppearance();
+            case "keybinds", "keys" -> openKeybinds();
+            case "profile", "profiles" -> profile(args);
+            case "favorite", "favourite" -> favorite(args);
             case "save" -> save();
             case "load", "reload" -> load();
             case "list", "modules" -> list(args);
@@ -548,6 +555,178 @@ public final class CommandManager {
         }
     }
 
+    /** Opens the ClickGUI on a named category, or lists categories when none is given. */
+    private void openCategory(List<String> args) {
+        if (args.isEmpty()) {
+            StringBuilder builder = new StringBuilder("Categories: ");
+            for (com.logvex.crystal.module.Category category : com.logvex.crystal.module.Category.values()) {
+                builder.append(category.displayName()).append(' ');
+            }
+            client.notify(builder.toString().trim(), NotificationLevel.INFO);
+            return;
+        }
+        for (com.logvex.crystal.module.Category category : com.logvex.crystal.module.Category.values()) {
+            if (category.name().equalsIgnoreCase(args.get(0))
+                    || category.displayName().equalsIgnoreCase(args.get(0))) {
+                ClickGui gui = client.clickGui();
+                if (gui != null) {
+                    gui.showCategory(category);
+                    gui.open();
+                }
+                return;
+            }
+        }
+        client.notify("Unknown category '" + args.get(0) + "'", NotificationLevel.ERROR);
+    }
+
+    private void openFavorites() {
+        ClickGui gui = client.clickGui();
+        if (gui != null) {
+            gui.showFavorites();
+            gui.open();
+        }
+    }
+
+    private void openRecent() {
+        ClickGui gui = client.clickGui();
+        if (gui != null) {
+            gui.showRecent();
+            gui.open();
+        }
+    }
+
+    private void openAppearance() {
+        ClickGui gui = client.clickGui();
+        if (gui != null) {
+            gui.showAppearance();
+            gui.open();
+        }
+    }
+
+    private void openKeybinds() {
+        if (!ScreenGuard.fontsReady()) {
+            return;
+        }
+        MinecraftClient.getInstance().setScreen(
+                new com.logvex.crystal.gui.KeybindScreen(client.modules(), client.theme(), null));
+    }
+
+    /** Manages named profiles: {@code list, save, load, delete, import, export, starters}. */
+    private void profile(List<String> args) {
+        var service = client.profiles();
+        if (service == null) {
+            client.notify("Profiles are not available yet", NotificationLevel.WARN);
+            return;
+        }
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("gui")) {
+            if (ScreenGuard.fontsReady()) {
+                MinecraftClient.getInstance().setScreen(
+                        new com.logvex.crystal.gui.ProfileScreen(service, client.theme()));
+            }
+            return;
+        }
+        String action = args.get(0).toLowerCase(Locale.ROOT);
+        switch (action) {
+            case "list" -> {
+                var names = service.names();
+                client.notify(names.isEmpty() ? "No profiles saved" : "Profiles: " + String.join(", ", names),
+                        NotificationLevel.INFO);
+                client.notify("Starters: " + String.join(", ", com.logvex.crystal.config.StarterProfiles.names()),
+                        NotificationLevel.INFO);
+            }
+            case "save" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; profile save <name>", NotificationLevel.WARN);
+                    return;
+                }
+                String name = CommandTokenizer.join(args.subList(1, args.size()));
+                try {
+                    boolean ok = service.save(name, false);
+                    if (ok) {
+                        client.notify("Saved profile '" + name + "'", NotificationLevel.SUCCESS);
+                    } else {
+                        client.notify("Profile '" + name + "' exists; use ; profile overwrite <name>",
+                                NotificationLevel.WARN);
+                    }
+                } catch (java.io.IOException e) {
+                    client.notify("Save failed: " + e.getMessage(), NotificationLevel.ERROR);
+                }
+            }
+            case "overwrite" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; profile overwrite <name>", NotificationLevel.WARN);
+                    return;
+                }
+                String name = CommandTokenizer.join(args.subList(1, args.size()));
+                try {
+                    service.save(name, true);
+                    client.notify("Overwrote profile '" + name + "'", NotificationLevel.SUCCESS);
+                } catch (java.io.IOException e) {
+                    client.notify("Save failed: " + e.getMessage(), NotificationLevel.ERROR);
+                }
+            }
+            case "load", "apply" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; profile load <name|starter>", NotificationLevel.WARN);
+                    return;
+                }
+                String name = CommandTokenizer.join(args.subList(1, args.size()));
+                if (com.logvex.crystal.config.StarterProfiles.names().contains(name)
+                        && !service.profiles().exists(name)) {
+                    var starter = com.logvex.crystal.config.StarterProfiles.build(name);
+                    if (starter != null) {
+                        service.applyProfile(starter);
+                        client.theme().update();
+                        client.notify("Applied starter '" + name + "'", NotificationLevel.SUCCESS);
+                        return;
+                    }
+                }
+                if (service.apply(name)) {
+                    client.theme().update();
+                    client.notify("Loaded profile '" + name + "'", NotificationLevel.SUCCESS);
+                } else {
+                    client.notify("No profile named '" + name + "'", NotificationLevel.ERROR);
+                }
+            }
+            case "delete", "del", "rm" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; profile delete <name>", NotificationLevel.WARN);
+                    return;
+                }
+                boolean ok = service.profiles().delete(CommandTokenizer.join(args.subList(1, args.size())));
+                client.notify(ok ? "Deleted profile" : "No such profile",
+                        ok ? NotificationLevel.SUCCESS : NotificationLevel.ERROR);
+            }
+            case "starters" -> client.notify("Starters: "
+                    + String.join(", ", com.logvex.crystal.config.StarterProfiles.names()), NotificationLevel.INFO);
+            default -> client.notify("Usage: ; profile <list|save|load|delete|starters|gui> [name]",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /** Toggles favourite status: {@code ; favorite <module>}. */
+    private void favorite(List<String> args) {
+        var store = client.favorites();
+        if (store == null) {
+            client.notify("Favourites are not available yet", NotificationLevel.WARN);
+            return;
+        }
+        if (args.isEmpty()) {
+            var favorites = store.favorites();
+            client.notify(favorites.isEmpty() ? "No favourites yet"
+                    : "Favourites: " + String.join(", ", favorites), NotificationLevel.INFO);
+            return;
+        }
+        Module module = client.modules().byName(CommandTokenizer.join(args));
+        if (module == null) {
+            client.notify("No module named '" + CommandTokenizer.join(args) + "'", NotificationLevel.ERROR);
+            return;
+        }
+        boolean nowFavorite = store.toggleFavorite(module.name());
+        client.saveAll();
+        client.notify(module.name() + (nowFavorite ? " favourited \u2605" : " unfavourited"), NotificationLevel.SUCCESS);
+    }
+
     private void save() {
         client.saveAll();
         client.notify("Configuration saved \u2661", NotificationLevel.SUCCESS);
@@ -587,6 +766,9 @@ public final class CommandManager {
                 "; opacity|gradient|glow|scale|animation <0..1>",
                 "; radius <0..12> | decorations|cat|motion|blur|cursor|sounds|splash <on|off>",
                 "; hud <element> <on|off> | hudedit | gui",
+                "; category <name> | favorites | recent | appearance | keybinds",
+                "; profile <list|save|load|delete|starters|gui> [name]",
+                "; favorite <module>",
                 "; waypoint <add|remove|list|clear> [name] [x y z]",
                 "; friend <add|remove|list> [name]",
                 "; save | load | list [category] | version"

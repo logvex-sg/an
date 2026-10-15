@@ -23,7 +23,11 @@ public enum ThemePreset {
     /** Midnight Kitty: dark blue with neon pink and cyan. */
     MIDNIGHT_KITTY("Midnight Kitty", 0xFFFF5FA2, 0xFF7CE7FF, 0xFFB77CFF, 0xFF0A0A1A, 0xFF14142A, 0xFFE8E6FF),
     /** Soft Boy: muted pastel blue and pink. */
-    SOFT_BOY("Soft Boy", 0xFFF5A9C0, 0xFFA9C6E8, 0xFFC7B8E8, 0xFF171722, 0xFF21212E, 0xFFEDEBF2);
+    SOFT_BOY("Soft Boy", 0xFFF5A9C0, 0xFFA9C6E8, 0xFFC7B8E8, 0xFF171722, 0xFF21212E, 0xFFEDEBF2),
+    /** Sakura Femboy: a pink-forward blush palette with baby-blue highlights. */
+    SAKURA_FEMBOY("Sakura Femboy", 0xFFFF9EC4, 0xFFB7E0FF, 0xFFE8C7F0, 0xFF1B1020, 0xFF271733, 0xFFFFF0F6),
+    /** Sakura Cyber: neon pastel pink and cyan on near-black, for high-contrast combat. */
+    SAKURA_CYBER("Sakura Cyber", 0xFFFF6FB5, 0xFF6FE7FF, 0xFFB98CFF, 0xFF07070F, 0xFF12122A, 0xFFEDE8FF);
 
     private final String label;
     private final int primary;

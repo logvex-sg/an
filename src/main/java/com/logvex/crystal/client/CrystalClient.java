@@ -5,7 +5,10 @@ import com.logvex.crystal.command.CommandManager;
 import com.logvex.crystal.config.AppearanceStore;
 import com.logvex.crystal.config.ConfigManager;
 import com.logvex.crystal.config.ConfigPaths;
+import com.logvex.crystal.config.FavoritesStore;
 import com.logvex.crystal.config.HudLayoutStore;
+import com.logvex.crystal.config.ProfileManager;
+import com.logvex.crystal.config.ProfileService;
 import com.logvex.crystal.cosmetic.CosmeticService;
 import com.logvex.crystal.cosmetic.GuiSounds;
 import com.logvex.crystal.gui.ClickGui;
@@ -55,6 +58,8 @@ public final class CrystalClient implements ClientModInitializer {
     private ConfigManager config;
     private AppearanceStore appearanceStore;
     private HudLayoutStore hudLayoutStore;
+    private FavoritesStore favoritesStore;
+    private ProfileService profileService;
     private CommandManager commands;
     private ClickGui clickGui;
     private KeyBinding clickGuiKey;
@@ -70,7 +75,7 @@ public final class CrystalClient implements ClientModInitializer {
 
     /** Opt-in headless driver: {@code -Dlogvex.smoke=true -Dlogvex.smoke.ticks=N}. */
     private static final boolean SMOKE = Boolean.getBoolean("logvex.smoke");
-    private static final int SMOKE_TICKS = Integer.getInteger("logvex.smoke.ticks", 340);
+    private static final int SMOKE_TICKS = Integer.getInteger("logvex.smoke.ticks", 440);
     /** Optional directory for dev screenshots of the smoke stages. */
     private static final String SHOT_DIR = System.getProperty("logvex.smoke.shots", "");
     private int smokeTick;
@@ -127,6 +132,11 @@ public final class CrystalClient implements ClientModInitializer {
         modules.attachContext(new ModuleContext(modules, combat, theme, hud, notifications, config));
         config.load();
         applyHudVisibility();
+
+        favoritesStore = new FavoritesStore(ConfigPaths.favorites());
+        favoritesStore.load();
+        profileService = new ProfileService(new ProfileManager(ConfigPaths.profiles()), config,
+                hudLayoutStore, appearanceStore, hud.layout(), theme.settings(), this::afterConfigApply);
 
         commands = new CommandManager(this);
 
@@ -377,6 +387,67 @@ public final class CrystalClient implements ClientModInitializer {
                 require(!chestLogger.isEnabled(), "ChestLogger did not disable");
                 smokeStage++;
             }
+            case 10 -> {
+                if (smokeTick < 320) {
+                    return;
+                }
+                // Favourites round-trip through disk.
+                favoritesStore.toggleFavorite("AutoCrystal");
+                require(favoritesStore.isFavorite("AutoCrystal"), "favourite was not recorded");
+                favoritesStore.markUsed("AutoTotem");
+                favoritesStore.markUsed("AutoCrystal");
+                require(favoritesStore.recent().get(0).equals("AutoCrystal"), "recents ordering wrong");
+                saveAll();
+                require(java.nio.file.Files.exists(ConfigPaths.favorites()), "favorites.json was not written");
+                smokeStage++;
+            }
+            case 11 -> {
+                if (smokeTick < 350) {
+                    return;
+                }
+                // Profile save -> mutate -> load round-trip through the real service.
+                require(profileService != null, "profile service was not created");
+                try {
+                    boolean saved = profileService.save("smoke-profile", true);
+                    require(saved, "profile was not written");
+                } catch (java.io.IOException e) {
+                    throw new IllegalStateException("SMOKE FAILURE: profile save threw", e);
+                }
+                require(java.nio.file.Files.exists(ConfigPaths.profiles().resolve("smoke-profile.json")),
+                        "profile file missing");
+                // Change something, then load the profile back and prove it was restored.
+                var entityEsp = modules.byName("EntityEsp");
+                require(entityEsp != null, "EntityEsp missing");
+                if (!entityEsp.isEnabled()) {
+                    entityEsp.toggle(modules);
+                }
+                boolean ok = profileService.apply("smoke-profile");
+                require(ok, "profile did not load");
+                require(favoritesStore.isFavorite("AutoCrystal"), "favourite lost after profile load");
+                // Clean up the smoke profile so repeat runs start fresh.
+                profileService.profiles().delete("smoke-profile");
+                smokeStage++;
+            }
+            case 12 -> {
+                if (smokeTick < 380) {
+                    return;
+                }
+                // Exercise every new screen installing without a null renderer.
+                client.setScreen(new com.logvex.crystal.gui.KeybindScreen(modules, theme, null));
+                require(client.currentScreen instanceof com.logvex.crystal.gui.KeybindScreen,
+                        "KeybindScreen did not install");
+                smokeStage++;
+            }
+            case 13 -> {
+                if (smokeTick < 400) {
+                    return;
+                }
+                client.setScreen(new com.logvex.crystal.gui.ProfileScreen(profileService, theme));
+                require(client.currentScreen instanceof com.logvex.crystal.gui.ProfileScreen,
+                        "ProfileScreen did not install");
+                client.setScreen(null);
+                smokeStage++;
+            }
             default -> {
                 if (smokeTick >= SMOKE_TICKS) {
                     LOG.info("LOGVEX CRYSTAL smoke OK after {} ticks ({} modules)", smokeTick, modules.size());
@@ -440,6 +511,7 @@ public final class CrystalClient implements ClientModInitializer {
             config.save();
             friends.save();
             waypoints.save();
+            favoritesStore.save();
         } catch (IOException e) {
             LOG.warn("Failed to save configuration", e);
         }
@@ -465,27 +537,23 @@ public final class CrystalClient implements ClientModInitializer {
         }
     }
 
+    /**
+     * Runs after a profile is applied: rebuilds the palette from the restored appearance,
+     * re-syncs the HUD element visibility and pushes the theme state into the Theme module
+     * so its settings do not disagree with the profile.
+     */
+    private void afterConfigApply() {
+        theme.update();
+        applyHudVisibility();
+        var themeModule = modules.byClass(com.logvex.crystal.module.misc.ThemeModule.class);
+        if (themeModule != null) {
+            themeModule.syncFromTheme();
+        }
+    }
+
     private static void copyInto(com.logvex.crystal.theme.ThemeSettings source,
                                  com.logvex.crystal.theme.ThemeSettings target) {
-        com.logvex.crystal.theme.ThemeSettings copy = source.copy();
-        target.preset = copy.preset;
-        target.variant = copy.variant;
-        target.primaryOverride = copy.primaryOverride;
-        target.secondaryOverride = copy.secondaryOverride;
-        target.backgroundOpacity = copy.backgroundOpacity;
-        target.gradientIntensity = copy.gradientIntensity;
-        target.glowIntensity = copy.glowIntensity;
-        target.cornerRadius = copy.cornerRadius;
-        target.uiScale = copy.uiScale;
-        target.animationSpeed = copy.animationSpeed;
-        target.decorations = copy.decorations;
-        target.catCosmetics = copy.catCosmetics;
-        target.reducedMotion = copy.reducedMotion;
-        target.blur = copy.blur;
-        target.customCursor = copy.customCursor;
-        target.guiSounds = copy.guiSounds;
-        target.splashText = copy.splashText;
-        target.easterEgg = copy.easterEgg;
+        ProfileService.copyInto(source, target);
     }
 
     // ------------------------------------------------------------ accessors
@@ -546,6 +614,16 @@ public final class CrystalClient implements ClientModInitializer {
     /** The persisted waypoint list. */
     public com.logvex.crystal.util.waypoint.WaypointStore waypoints() {
         return waypoints;
+    }
+
+    /** Favourite/recent module tracking for the ClickGUI. */
+    public FavoritesStore favorites() {
+        return favoritesStore;
+    }
+
+    /** Named configuration profiles (save/load/import/export). */
+    public ProfileService profiles() {
+        return profileService;
     }
 
     public void notify(String message, NotificationLevel level) {

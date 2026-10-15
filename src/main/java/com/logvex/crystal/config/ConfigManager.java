@@ -47,6 +47,28 @@ public final class ConfigManager {
 
     /** Writes the current module state atomically. */
     public void save() throws IOException {
+        JsonObject root = toJson();
+        Path parent = file.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Path temp = file.resolveSibling(file.getFileName() + ".tmp");
+        try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
+            GSON.toJson(root, writer);
+        }
+        try {
+            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException atomicFailed) {
+            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    /**
+     * Serializes the current module state to a JSON object without touching disk. Used by
+     * {@link #save()} and by the profile manager, which snapshots the same shape into a
+     * named profile file.
+     */
+    public JsonObject toJson() {
         JsonObject root = new JsonObject();
         root.addProperty("schema", SCHEMA_VERSION);
         JsonObject moduleObject = new JsonObject();
@@ -67,20 +89,7 @@ public final class ConfigManager {
             moduleObject.add(module.name(), entry);
         }
         root.add("modules", moduleObject);
-
-        Path parent = file.getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
-        }
-        Path temp = file.resolveSibling(file.getFileName() + ".tmp");
-        try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
-            GSON.toJson(root, writer);
-        }
-        try {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException atomicFailed) {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-        }
+        return root;
     }
 
     /** Loads module state from disk, applying values and enabled flags. */

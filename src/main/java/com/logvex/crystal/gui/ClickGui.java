@@ -2,6 +2,7 @@ package com.logvex.crystal.gui;
 
 import com.logvex.crystal.client.CrystalClient;
 import com.logvex.crystal.config.ConfigManager;
+import com.logvex.crystal.config.FavoritesStore;
 import com.logvex.crystal.cosmetic.GuiSounds;
 import com.logvex.crystal.gui.widget.ColorPicker;
 import com.logvex.crystal.module.Category;
@@ -47,9 +48,9 @@ import net.minecraft.text.Text;
  */
 public final class ClickGui extends Screen {
 
-    /** Sidebar entries: the module categories plus the special Appearance page. */
-    private enum Tab {
-        APPEARANCE
+    /** Sidebar special pages beyond the module categories. */
+    private enum Page {
+        MODULES, APPEARANCE, FAVORITES, RECENT
     }
 
     private static final int SIDEBAR_WIDTH = 108;
@@ -76,7 +77,7 @@ public final class ClickGui extends Screen {
     private final ThemeManager theme;
 
     private Category selectedCategory = Category.COMBAT;
-    private boolean appearanceTab;
+    private Page page = Page.MODULES;
     private String search = "";
     private Module expanded;
     private Module bindingModule;
@@ -86,6 +87,15 @@ public final class ClickGui extends Screen {
     private EnumSetting<?> openDropdown;
     private String status = "";
     private long statusAt;
+
+    // Tooltip for the element under the cursor, rebuilt each frame.
+    private String tooltipTitle;
+    private String tooltipBody;
+
+    // Right-click context menu on a module card.
+    private Module contextModule;
+    private int contextX;
+    private int contextY;
 
     private double scroll;
     private int maxScroll;
@@ -193,19 +203,54 @@ public final class ClickGui extends Screen {
         listTop = panelTop + HEADER_HEIGHT + 24;
         listBottom = panelBottom - FOOTER_HEIGHT;
 
+        tooltipTitle = null;
+        tooltipBody = null;
         drawSidebar(context, palette, virtualMouseX, virtualMouseY, sidebarX);
-        if (appearanceTab) {
-            drawAppearance(context, palette, contentX, contentRight, virtualMouseX, virtualMouseY);
-        } else {
-            drawSearchBar(context, palette, contentX, contentRight);
-            drawModuleList(context, palette, contentX, contentRight, virtualMouseX, virtualMouseY);
+        switch (page) {
+            case APPEARANCE -> drawAppearance(context, palette, contentX, contentRight, virtualMouseX, virtualMouseY);
+            case FAVORITES -> {
+                drawSearchBar(context, palette, contentX, contentRight);
+                drawModuleList(context, palette, contentX, contentRight, virtualMouseX, virtualMouseY);
+            }
+            case RECENT -> {
+                drawSearchBar(context, palette, contentX, contentRight);
+                drawModuleList(context, palette, contentX, contentRight, virtualMouseX, virtualMouseY);
+            }
+            default -> {
+                drawSearchBar(context, palette, contentX, contentRight);
+                drawModuleList(context, palette, contentX, contentRight, virtualMouseX, virtualMouseY);
+            }
         }
         drawFooter(context, palette, contentX);
 
+        if (contextModule != null) {
+            drawContextMenu(context, palette, virtualMouseX, virtualMouseY);
+        }
         drawCursor(context, palette, virtualMouseX, virtualMouseY);
         matrices.popMatrix();
 
+        // Tooltips and the context menu live in real screen space so they sit above
+        // everything regardless of UI scale.
+        if (tooltipTitle != null && contextModule == null) {
+            drawTooltip(context, palette, mouseX, mouseY);
+        }
         super.render(context, mouseX, mouseY, deltaTicks);
+    }
+
+    /** Draws the hover tooltip for the element under the cursor, clamped to the screen. */
+    private void drawTooltip(DrawContext context, Palette palette, int mouseX, int mouseY) {
+        int titleWidth = textRenderer.getWidth(tooltipTitle);
+        int bodyWidth = tooltipBody == null ? 0 : textRenderer.getWidth(tooltipBody);
+        int w = Math.max(titleWidth, bodyWidth) + 12;
+        int h = tooltipBody == null ? 18 : 28;
+        int x = Math.min(mouseX + 12, width - w - 4);
+        int y = Math.min(mouseY + 10, height - h - 4);
+        RenderUtil.softShadow(context, x, y, w, h, r(4), 90);
+        RenderUtil.roundedPanel(context, x, y, w, h, r(4), palette.panel(), palette.border());
+        context.drawTextWithShadow(textRenderer, tooltipTitle, x + 6, y + 5, palette.primary());
+        if (tooltipBody != null) {
+            context.drawTextWithShadow(textRenderer, tooltipBody, x + 6, y + 15, palette.textDim());
+        }
     }
 
     /** Effective UI scale, guarded against a zero/negative value. */
@@ -257,29 +302,65 @@ public final class ClickGui extends Screen {
             RenderUtil.catEars(context, panelLeft + 10 + textRenderer.getWidth("LOGVEX CRYSTAL") + 2,
                     panelTop + 4, 16, 6, palette.primary(), 0.4f);
         }
-        String sub = appearanceTab ? "appearance" : selectedCategory.displayName().toLowerCase(Locale.ROOT);
+        String sub = switch (page) {
+            case APPEARANCE -> "appearance";
+            case FAVORITES -> "favourites";
+            case RECENT -> "recent";
+            default -> selectedCategory.displayName().toLowerCase(Locale.ROOT);
+        };
         context.drawTextWithShadow(textRenderer, sub, panelLeft + 10 + textRenderer.getWidth("LOGVEX CRYSTAL") + 22,
                 panelTop + 9, palette.textDim());
-        // Close button, top-right of the header.
+        // Active module counter, right of the branding.
+        int activeX = panelLeft + 10 + textRenderer.getWidth("LOGVEX CRYSTAL") + 22 + textRenderer.getWidth(sub) + 12;
+        context.drawTextWithShadow(textRenderer, modules.enabledCount() + " active", activeX, panelTop + 9, palette.secondary());
+        // Header shortcut buttons: keybinds, profiles, then the close button at the far right.
         int closeX = panelRight - 18;
-        int closeY = panelTop + 5;
-        context.drawTextWithShadow(textRenderer, "\u2715", closeX, closeY, palette.textDim());
+        drawHeaderButton(context, palette, "keys", closeX - 92, panelTop + 5, 40);
+        drawHeaderButton(context, palette, "profiles", closeX - 48, panelTop + 5, 44);
+        context.drawTextWithShadow(textRenderer, "\u2715", closeX, panelTop + 5, palette.textDim());
         RenderUtil.horizontalGradient(context, panelLeft + 4, panelTop + HEADER_HEIGHT - 2,
                 panelRight - panelLeft - 8, 2, palette.accentGradientStart(), palette.accentGradientEnd());
+    }
+
+    private void drawHeaderButton(DrawContext context, Palette palette, String label, int x, int y, int w) {
+        RenderUtil.roundedPanel(context, x, y, w, 14, r(3), ColorUtil.scaleAlpha(palette.panelAlt(), 0.9f), palette.borderSoft());
+        context.drawTextWithShadow(textRenderer, label, x + 5, y + 4, palette.textDim());
     }
 
     private void drawSidebar(DrawContext context, Palette palette, int mouseX, int mouseY, int x) {
         int y = panelTop + HEADER_HEIGHT + 8;
         int w = SIDEBAR_WIDTH - 4;
         for (Category category : Category.values()) {
-            y = drawSidebarRow(context, palette, mouseX, mouseY, x, y, w, category.icon() + " " + category.displayName(),
-                    category.tint(), !appearanceTab && category == selectedCategory);
+            int count = modules.byCategory(category).size();
+            String label = category.icon() + " " + category.displayName() + "  " + count;
+            y = drawSidebarRow(context, palette, mouseX, mouseY, x, y, w, label,
+                    category.tint(), page == Page.MODULES && category == selectedCategory);
         }
         y += 4;
-        drawSidebarRow(context, palette, mouseX, mouseY, x, y, w, "\u273F Appearance", palette.tertiary(), appearanceTab);
+        y = drawSidebarRow(context, palette, mouseX, mouseY, x, y, w,
+                "\u2605 Favourites  " + favoriteCount(), palette.primary(), page == Page.FAVORITES);
+        y = drawSidebarRow(context, palette, mouseX, mouseY, x, y, w,
+                "\u21BB Recent  " + recentCount(), palette.secondary(), page == Page.RECENT);
+        y = drawSidebarRow(context, palette, mouseX, mouseY, x, y, w, "\u273F Appearance", palette.tertiary(),
+                page == Page.APPEARANCE);
 
         int py = panelBottom - FOOTER_HEIGHT - 18;
         context.drawTextWithShadow(textRenderer, modules.size() + " modules \u2661", x + 4, py, palette.textDim());
+    }
+
+    private int favoriteCount() {
+        FavoritesStore store = favoritesStore();
+        return store == null ? 0 : store.favorites().size();
+    }
+
+    private int recentCount() {
+        FavoritesStore store = favoritesStore();
+        return store == null ? 0 : store.recent().size();
+    }
+
+    private FavoritesStore favoritesStore() {
+        CrystalClient bootstrap = CrystalClient.get();
+        return bootstrap == null ? null : bootstrap.favorites();
     }
 
     private int drawSidebarRow(DrawContext context, Palette palette, int mouseX, int mouseY, int x, int y, int w,
@@ -360,9 +441,107 @@ public final class ClickGui extends Screen {
         String bind = module.keybind().isBound() ? "  [" + KeyNames.name(module.keybind().key()) + "]" : "";
         int nameColor = enabled ? palette.primary() : palette.text();
         context.drawTextWithShadow(textRenderer, module.name() + bind, nameX, y + 7, nameColor);
+        // Favourite star, lit when the module is a favourite.
+        FavoritesStore store = favoritesStore();
+        boolean favorite = store != null && store.isFavorite(module.name());
+        context.drawTextWithShadow(textRenderer, favorite ? "\u2605" : "\u2606", right - 52, y + 7,
+                favorite ? palette.primary() : palette.textDim());
         drawToggle(context, palette, right - 34, y + 5, enabled, hovered);
         if (!modules.canEnable(module) && !enabled) {
-            context.drawTextWithShadow(textRenderer, "\u26A0", right - 46, y + 7, palette.warning());
+            context.drawTextWithShadow(textRenderer, "\u26A0", right - 68, y + 7, palette.warning());
+        }
+        if (hovered) {
+            tooltipTitle = module.name();
+            tooltipBody = module.description() == null || module.description().isEmpty()
+                    ? "left-click toggle \u00B7 right-click menu"
+                    : module.description();
+        }
+    }
+
+    /** Right-click menu for a module card: settings, favourite, bind, reset. */
+    private void drawContextMenu(DrawContext context, Palette palette, int mouseX, int mouseY) {
+        String[] items = contextItems();
+        int w = 132;
+        int rowH = 14;
+        int h = items.length * rowH + 6;
+        RenderUtil.softShadow(context, contextX, contextY, w, h, r(5), 100);
+        RenderUtil.roundedPanel(context, contextX, contextY, w, h, r(5), palette.panel(), palette.border());
+        for (int i = 0; i < items.length; i++) {
+            int rowY = contextY + 3 + i * rowH;
+            boolean hovered = mouseX >= contextX && mouseX <= contextX + w && mouseY >= rowY && mouseY <= rowY + rowH;
+            if (hovered) {
+                RenderUtil.roundedRect(context, contextX + 2, rowY, w - 4, rowH, r(3), palette.panelHover());
+            }
+            context.drawTextWithShadow(textRenderer, items[i], contextX + 7, rowY + 3,
+                    hovered ? palette.text() : palette.textDim());
+        }
+    }
+
+    private String[] contextItems() {
+        boolean favorite = contextModule != null && favoritesStore() != null
+                && favoritesStore().isFavorite(contextModule.name());
+        return new String[]{
+                "Settings",
+                favorite ? "Unfavourite" : "Favourite",
+                "Bind key",
+                "Reset settings",
+                "Disable"
+        };
+    }
+
+    private void handleContextClick(double mouseX, double mouseY) {
+        int rowH = 14;
+        int index = (int) ((mouseY - contextY - 3) / rowH);
+        Module module = contextModule;
+        contextModule = null;
+        if (module == null || index < 0) {
+            return;
+        }
+        switch (index) {
+            case 0 -> {
+                expanded = expanded == module ? null : module;
+                selectedCategory = module.category();
+                page = Page.MODULES;
+                GuiSounds.click();
+            }
+            case 1 -> {
+                FavoritesStore store = favoritesStore();
+                if (store != null) {
+                    store.toggleFavorite(module.name());
+                    persistFavorites();
+                    GuiSounds.click();
+                }
+            }
+            case 2 -> {
+                bindingModule = module;
+                bindingSetting = module.keybind();
+                setStatus("Press a key to bind " + module.name());
+            }
+            case 3 -> {
+                module.keybind().reset();
+                for (SettingGroup group : module.groups()) {
+                    for (Setting<?> setting : group.settings()) {
+                        setting.reset();
+                    }
+                }
+                setStatus("Reset " + module.name() + " to defaults");
+                GuiSounds.click();
+            }
+            case 4 -> {
+                if (module.isEnabled()) {
+                    module.disable();
+                }
+                setStatus(module.name() + " disabled");
+            }
+            default -> {
+            }
+        }
+    }
+
+    private void persistFavorites() {
+        CrystalClient bootstrap = CrystalClient.get();
+        if (bootstrap != null) {
+            bootstrap.saveAll();
         }
     }
 
@@ -404,7 +583,15 @@ public final class ClickGui extends Screen {
         boolean hovered = mouseX >= x && mouseX <= right && mouseY >= y && mouseY <= y + ROW_HEIGHT;
         RenderUtil.roundedRect(context, x, y, right - x, ROW_HEIGHT, r(3), hovered ? palette.panelHover() : palette.panelAlt());
         context.drawTextWithShadow(textRenderer, setting.name(), x + 5, y + 4, palette.text());
+        if (hovered && setting.description() != null && !setting.description().isEmpty()) {
+            tooltipTitle = setting.name();
+            tooltipBody = setting.description();
+        }
         int valueX = right - 84;
+        // A small reset dot on the right edge of any setting that differs from its default.
+        if (!setting.isDefault()) {
+            RenderUtil.dot(context, right - 2, y + ROW_HEIGHT / 2, 1, palette.tertiary());
+        }
         if (setting instanceof BooleanSetting bool) {
             drawToggle(context, palette, right - 34, y + 2, bool.value(), hovered);
         } else if (setting instanceof ColorSetting color) {
@@ -468,6 +655,8 @@ public final class ClickGui extends Screen {
     private void drawDropdown(DrawContext context, Palette palette, EnumSetting<?> setting, int x, int y, int right) {
         int w = Math.max(80, right - x);
         int h = setting.values().size() * 12 + 4;
+        // Capture the popup top so the click resolver hits the row under the cursor.
+        dropdownTop = y;
         RenderUtil.softShadow(context, x, y, w, h, r(4), 80);
         RenderUtil.roundedPanel(context, x, y, w, h, r(4), palette.panel(), palette.border());
         int rowY = y + 2;
@@ -592,14 +781,19 @@ public final class ClickGui extends Screen {
         double mouseX = click.x() / uiScale();
         double mouseY = click.y() / uiScale();
         int button = click.button();
-        // Header: close button, then drag-to-move.
+        // Header: shortcuts, close button, then drag-to-move.
         if (handleHeaderClick(mouseX, mouseY, button)) {
+            return true;
+        }
+        // An open context menu swallows the next click.
+        if (contextModule != null) {
+            handleContextClick(mouseX, mouseY);
             return true;
         }
         if (handleSidebarClick(mouseX, mouseY)) {
             return true;
         }
-        if (appearanceTab) {
+        if (page == Page.APPEARANCE) {
             if (handleAppearanceClick(mouseX, mouseY, button)) {
                 return true;
             }
@@ -609,7 +803,7 @@ public final class ClickGui extends Screen {
         return super.mouseClicked(click, doubled);
     }
 
-    /** Handles the header bar: the close button and click-drag window moving. */
+    /** Handles the header bar: shortcut buttons, the close button and click-drag moving. */
     private boolean handleHeaderClick(double mouseX, double mouseY, int button) {
         int headerBottom = panelTop + HEADER_HEIGHT;
         if (mouseX < panelLeft || mouseX > panelRight || mouseY < panelTop || mouseY > headerBottom) {
@@ -618,6 +812,14 @@ public final class ClickGui extends Screen {
         if (button == 0 && inRect(mouseX, mouseY, panelRight - 20, panelTop + 2, 16, 14)) {
             GuiSounds.close();
             close();
+            return true;
+        }
+        if (button == 0 && inRect(mouseX, mouseY, panelRight - 92, panelTop + 5, 40, 14)) {
+            openKeybindScreen();
+            return true;
+        }
+        if (button == 0 && inRect(mouseX, mouseY, panelRight - 48, panelTop + 5, 44, 14)) {
+            openProfileScreen();
             return true;
         }
         if (button == 0) {
@@ -629,6 +831,26 @@ public final class ClickGui extends Screen {
         return false;
     }
 
+    private void openKeybindScreen() {
+        CrystalClient bootstrap = CrystalClient.get();
+        if (bootstrap != null) {
+            net.minecraft.client.MinecraftClient.getInstance().setScreen(
+                    new KeybindScreen(modules, theme, this::markKeybindsChanged));
+        }
+    }
+
+    private void markKeybindsChanged() {
+        setStatus("Keybinds updated");
+    }
+
+    private void openProfileScreen() {
+        CrystalClient bootstrap = CrystalClient.get();
+        if (bootstrap != null) {
+            net.minecraft.client.MinecraftClient.getInstance().setScreen(
+                    new ProfileScreen(bootstrap.profiles(), theme));
+        }
+    }
+
     private boolean handleSidebarClick(double mouseX, double mouseY) {
         int x = panelLeft + 4;
         int y = panelTop + HEADER_HEIGHT + 8;
@@ -636,7 +858,7 @@ public final class ClickGui extends Screen {
         for (Category category : Category.values()) {
             if (inRect(mouseX, mouseY, x, y, w, 18)) {
                 selectedCategory = category;
-                appearanceTab = false;
+                page = Page.MODULES;
                 search = "";
                 scroll = 0;
                 GuiSounds.click();
@@ -646,7 +868,23 @@ public final class ClickGui extends Screen {
         }
         y += 4;
         if (inRect(mouseX, mouseY, x, y, w, 18)) {
-            appearanceTab = true;
+            page = Page.FAVORITES;
+            search = "";
+            scroll = 0;
+            GuiSounds.click();
+            return true;
+        }
+        y += 21;
+        if (inRect(mouseX, mouseY, x, y, w, 18)) {
+            page = Page.RECENT;
+            search = "";
+            scroll = 0;
+            GuiSounds.click();
+            return true;
+        }
+        y += 21;
+        if (inRect(mouseX, mouseY, x, y, w, 18)) {
+            page = Page.APPEARANCE;
             scroll = 0;
             GuiSounds.click();
             return true;
@@ -671,12 +909,22 @@ public final class ClickGui extends Screen {
         int y = listTop - (int) scroll;
         for (Module module : visibleModules()) {
             if (mouseY >= y && mouseY <= y + CARD_HEIGHT) {
-                if (button == 0) {
+                if (button == 0 && inRect(mouseX, mouseY, right - 56, y + 2, 16, 16)) {
+                    // The star toggles favourite status.
+                    FavoritesStore store = favoritesStore();
+                    if (store != null) {
+                        store.toggleFavorite(module.name());
+                        persistFavorites();
+                        GuiSounds.click();
+                    }
+                } else if (button == 0) {
                     // Meteor convention: left click toggles the module.
                     toggleModule(module);
                 } else if (button == 1) {
-                    // Right click expands the settings panel.
-                    expanded = expanded == module ? null : module;
+                    // Right click opens the context menu.
+                    contextModule = module;
+                    contextX = (int) mouseX;
+                    contextY = (int) mouseY;
                     GuiSounds.click();
                 }
                 return true;
@@ -712,6 +960,10 @@ public final class ClickGui extends Screen {
 
     private void toggleModule(Module module) {
         module.toggle(modules);
+        FavoritesStore store = favoritesStore();
+        if (store != null) {
+            store.markUsed(module.name());
+        }
         if (module.isEnabled()) {
             GuiSounds.toggleOn();
         } else {
@@ -775,6 +1027,12 @@ public final class ClickGui extends Screen {
     }
 
     private void activateSetting(Module module, Setting<?> setting, double mouseX, int right) {
+        if (shiftDown()) {
+            setting.reset();
+            setStatus(setting.name() + " reset to default");
+            GuiSounds.click();
+            return;
+        }
         if (setting instanceof BooleanSetting bool) {
             bool.toggle();
             GuiSounds.click();
@@ -794,6 +1052,12 @@ public final class ClickGui extends Screen {
         } else if (setting instanceof StringSetting string) {
             setStatus("Use ; set " + module.name() + " " + string.name() + " <value>");
         }
+    }
+
+    private boolean shiftDown() {
+        var window = client == null ? null : client.getWindow();
+        return window != null && net.minecraft.client.util.InputUtil.isKeyPressed(window,
+                org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_SHIFT);
     }
 
     private boolean clickColorSliders(ColorSetting color, int x, int y, int right, double mouseX, double mouseY) {
@@ -986,7 +1250,7 @@ public final class ClickGui extends Screen {
             return true;
         }
         if (key == org.lwjgl.glfw.GLFW.GLFW_KEY_T) {
-            appearanceTab = !appearanceTab;
+            page = page == Page.APPEARANCE ? Page.MODULES : Page.APPEARANCE;
             scroll = 0;
             return true;
         }
@@ -995,7 +1259,7 @@ public final class ClickGui extends Screen {
 
     @Override
     public boolean charTyped(CharInput input) {
-        if (appearanceTab) {
+        if (page == Page.APPEARANCE) {
             return super.charTyped(input);
         }
         String typed = input.asString();
@@ -1019,18 +1283,56 @@ public final class ClickGui extends Screen {
     private List<Module> visibleModules() {
         List<Module> result = new ArrayList<>();
         String needle = search.toLowerCase(Locale.ROOT);
+        FavoritesStore store = favoritesStore();
+        List<String> recent = store == null ? List.of() : store.recent();
         for (Module module : modules.all()) {
             if (!needle.isEmpty()) {
+                // Search matches the name, the description and any setting name, so a user
+                // can find "AutoTotem" or the module that owns a "Health" setting.
                 if (!module.searchKey().contains(needle)
-                        && !module.description().toLowerCase(Locale.ROOT).contains(needle)) {
+                        && !module.description().toLowerCase(Locale.ROOT).contains(needle)
+                        && !module.category().displayName().toLowerCase(Locale.ROOT).contains(needle)
+                        && !hasMatchingSetting(module, needle)) {
                     continue;
                 }
-            } else if (module.category() != selectedCategory) {
-                continue;
+            } else {
+                switch (page) {
+                    case FAVORITES -> {
+                        if (store == null || !store.isFavorite(module.name())) {
+                            continue;
+                        }
+                    }
+                    case RECENT -> {
+                        if (!recent.contains(module.name())) {
+                            continue;
+                        }
+                    }
+                    default -> {
+                        if (module.category() != selectedCategory) {
+                            continue;
+                        }
+                    }
+                }
             }
             result.add(module);
         }
+        // On the Recent page, preserve most-recent-first ordering.
+        if (page == Page.RECENT && needle.isEmpty()) {
+            result.sort((a, b) -> Integer.compare(recent.indexOf(a.name()), recent.indexOf(b.name())));
+        }
         return result;
+    }
+
+    /** True when any visible setting of the module matches the search needle. */
+    private boolean hasMatchingSetting(Module module, String needle) {
+        for (SettingGroup group : module.groups()) {
+            for (Setting<?> setting : group.settings()) {
+                if (setting.name().toLowerCase(Locale.ROOT).contains(needle)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean inRect(double mx, double my, int x, int y, int w, int h) {
@@ -1054,7 +1356,7 @@ public final class ClickGui extends Screen {
 
     /** True while the GUI is showing the Appearance tab (used by the smoke harness). */
     public boolean isAppearance() {
-        return appearanceTab;
+        return page == Page.APPEARANCE;
     }
 
     /**
@@ -1070,14 +1372,28 @@ public final class ClickGui extends Screen {
 
     /** Switches the GUI to the Appearance tab (used by the Theme module and commands). */
     public void showAppearance() {
-        appearanceTab = true;
+        page = Page.APPEARANCE;
         scroll = 0;
     }
 
     /** Switches the GUI to a module category. */
     public void showCategory(Category category) {
         this.selectedCategory = category;
-        this.appearanceTab = false;
+        this.page = Page.MODULES;
+        this.scroll = 0;
+    }
+
+    /** Switches the GUI to the Favourites page. */
+    public void showFavorites() {
+        this.page = Page.FAVORITES;
+        this.search = "";
+        this.scroll = 0;
+    }
+
+    /** Switches the GUI to the Recently-used page. */
+    public void showRecent() {
+        this.page = Page.RECENT;
+        this.search = "";
         this.scroll = 0;
     }
 }

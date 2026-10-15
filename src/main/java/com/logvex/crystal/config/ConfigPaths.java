@@ -32,4 +32,13 @@ public final class ConfigPaths {
     public static Path waypoints() {
         return directory().resolve("waypoints.json");
     }
+
+    public static Path favorites() {
+        return directory().resolve("favorites.json");
+    }
+
+    /** Directory holding named configuration profiles. */
+    public static Path profiles() {
+        return directory().resolve("profiles");
+    }
 }
