@@ -55,7 +55,13 @@ public final class ClickGui extends Screen {
 
     private static final int SIDEBAR_WIDTH = 108;
     private static final int HEADER_HEIGHT = 30;
+    private static final String SEARCH_GLYPH = "\u2315 ";
     private static final int FOOTER_HEIGHT = 20;
+    // Header shortcut buttons: shared by the draw and click paths so they cannot drift.
+    private static final int KEYBIND_BUTTON_W = 52;
+    private static final int KEYBIND_BUTTON_INSET = 122;
+    private static final int PROFILE_BUTTON_W = 44;
+    private static final int PROFILE_BUTTON_INSET = 62;
     private static final int CARD_HEIGHT = 22;
     private static final int ROW_HEIGHT = 16;
 
@@ -297,10 +303,20 @@ public final class ClickGui extends Screen {
     }
 
     private void drawHeader(DrawContext context, Palette palette) {
-        context.drawTextWithShadow(textRenderer, "LOGVEX CRYSTAL", panelLeft + 10, panelTop + 8, palette.primary());
+        // Prefer the packaged crystal mark; fall back to the text wordmark when absent.
+        boolean logoDrawn = com.logvex.crystal.assets.Assets.icon(context, "crystal",
+                panelLeft + 20, panelTop + 13, 16, palette.primary());
+        int brandRight;
+        if (logoDrawn) {
+            context.drawTextWithShadow(textRenderer, "LOGVEX", panelLeft + 32, panelTop + 4, palette.primary());
+            context.drawTextWithShadow(textRenderer, "CRYSTAL", panelLeft + 32, panelTop + 14, palette.secondary());
+            brandRight = panelLeft + 32 + textRenderer.getWidth("CRYSTAL");
+        } else {
+            context.drawTextWithShadow(textRenderer, "LOGVEX CRYSTAL", panelLeft + 10, panelTop + 8, palette.primary());
+            brandRight = panelLeft + 10 + textRenderer.getWidth("LOGVEX CRYSTAL");
+        }
         if (theme.settings().decorations) {
-            RenderUtil.catEars(context, panelLeft + 10 + textRenderer.getWidth("LOGVEX CRYSTAL") + 2,
-                    panelTop + 4, 16, 6, palette.primary(), 0.4f);
+            RenderUtil.catEars(context, brandRight + 4, panelTop + 4, 16, 6, palette.primary(), 0.4f);
         }
         String sub = switch (page) {
             case APPEARANCE -> "appearance";
@@ -308,23 +324,23 @@ public final class ClickGui extends Screen {
             case RECENT -> "recent";
             default -> selectedCategory.displayName().toLowerCase(Locale.ROOT);
         };
-        context.drawTextWithShadow(textRenderer, sub, panelLeft + 10 + textRenderer.getWidth("LOGVEX CRYSTAL") + 22,
-                panelTop + 9, palette.textDim());
-        // Active module counter, right of the branding.
-        int activeX = panelLeft + 10 + textRenderer.getWidth("LOGVEX CRYSTAL") + 22 + textRenderer.getWidth(sub) + 12;
-        context.drawTextWithShadow(textRenderer, modules.enabledCount() + " active", activeX, panelTop + 9, palette.secondary());
+        int subX = brandRight + 24;
+        context.drawTextWithShadow(textRenderer, sub, subX, panelTop + 9, palette.textDim());
+        // Active module counter, right of the page label.
+        context.drawTextWithShadow(textRenderer, modules.enabledCount() + " active",
+                subX + textRenderer.getWidth(sub) + 12, panelTop + 9, palette.secondary());
         // Header shortcut buttons: keybinds, profiles, then the close button at the far right.
-        int closeX = panelRight - 18;
-        drawHeaderButton(context, palette, "keys", closeX - 92, panelTop + 5, 40);
-        drawHeaderButton(context, palette, "profiles", closeX - 48, panelTop + 5, 44);
-        context.drawTextWithShadow(textRenderer, "\u2715", closeX, panelTop + 5, palette.textDim());
+        drawHeaderButton(context, palette, "keybinds", panelRight - KEYBIND_BUTTON_INSET, panelTop + 5, KEYBIND_BUTTON_W);
+        drawHeaderButton(context, palette, "profiles", panelRight - PROFILE_BUTTON_INSET, panelTop + 5, PROFILE_BUTTON_W);
+        context.drawTextWithShadow(textRenderer, "\u2715", panelRight - 18, panelTop + 5, palette.textDim());
         RenderUtil.horizontalGradient(context, panelLeft + 4, panelTop + HEADER_HEIGHT - 2,
                 panelRight - panelLeft - 8, 2, palette.accentGradientStart(), palette.accentGradientEnd());
     }
 
     private void drawHeaderButton(DrawContext context, Palette palette, String label, int x, int y, int w) {
         RenderUtil.roundedPanel(context, x, y, w, 14, r(3), ColorUtil.scaleAlpha(palette.panelAlt(), 0.9f), palette.borderSoft());
-        context.drawTextWithShadow(textRenderer, label, x + 5, y + 4, palette.textDim());
+        boolean icon = com.logvex.crystal.assets.Assets.icon(context, label, x + 7, y + 7, 10, palette.textDim());
+        context.drawTextWithShadow(textRenderer, label, x + (icon ? 14 : 5), y + 4, palette.textDim());
     }
 
     private void drawSidebar(DrawContext context, Palette palette, int mouseX, int mouseY, int x) {
@@ -332,17 +348,26 @@ public final class ClickGui extends Screen {
         int w = SIDEBAR_WIDTH - 4;
         for (Category category : Category.values()) {
             int count = modules.byCategory(category).size();
-            String label = category.icon() + " " + category.displayName() + "  " + count;
+            boolean active = page == Page.MODULES && category == selectedCategory;
+            boolean iconDrawn = com.logvex.crystal.assets.Assets.categoryIcon(context, category.name(),
+                    x + 12, y + 9, 11, category.tint());
+            String label = (iconDrawn ? "" : category.icon() + " ") + category.displayName() + "  " + count;
             y = drawSidebarRow(context, palette, mouseX, mouseY, x, y, w, label,
-                    category.tint(), page == Page.MODULES && category == selectedCategory);
+                    category.tint(), active, iconDrawn ? 18 : 7);
         }
         y += 4;
+        boolean favIcon = com.logvex.crystal.assets.Assets.icon(context, "star", x + 12, y + 9, 11, palette.primary());
         y = drawSidebarRow(context, palette, mouseX, mouseY, x, y, w,
-                "\u2605 Favourites  " + favoriteCount(), palette.primary(), page == Page.FAVORITES);
+                (favIcon ? "" : "\u2605 ") + "Favourites  " + favoriteCount(), palette.primary(),
+                page == Page.FAVORITES, favIcon ? 18 : 7);
+        boolean recIcon = com.logvex.crystal.assets.Assets.icon(context, "recent", x + 12, y + 9, 11, palette.secondary());
         y = drawSidebarRow(context, palette, mouseX, mouseY, x, y, w,
-                "\u21BB Recent  " + recentCount(), palette.secondary(), page == Page.RECENT);
-        y = drawSidebarRow(context, palette, mouseX, mouseY, x, y, w, "\u273F Appearance", palette.tertiary(),
-                page == Page.APPEARANCE);
+                (recIcon ? "" : "\u21BB ") + "Recent  " + recentCount(), palette.secondary(),
+                page == Page.RECENT, recIcon ? 18 : 7);
+        boolean themeIcon = com.logvex.crystal.assets.Assets.icon(context, "theme", x + 12, y + 9, 11, palette.tertiary());
+        y = drawSidebarRow(context, palette, mouseX, mouseY, x, y, w,
+                (themeIcon ? "" : "\u273F ") + "Appearance", palette.tertiary(),
+                page == Page.APPEARANCE, themeIcon ? 18 : 7);
 
         int py = panelBottom - FOOTER_HEIGHT - 18;
         context.drawTextWithShadow(textRenderer, modules.size() + " modules \u2661", x + 4, py, palette.textDim());
@@ -365,6 +390,11 @@ public final class ClickGui extends Screen {
 
     private int drawSidebarRow(DrawContext context, Palette palette, int mouseX, int mouseY, int x, int y, int w,
                                String label, int tint, boolean active) {
+        return drawSidebarRow(context, palette, mouseX, mouseY, x, y, w, label, tint, active, 7);
+    }
+
+    private int drawSidebarRow(DrawContext context, Palette palette, int mouseX, int mouseY, int x, int y, int w,
+                               String label, int tint, boolean active, int textInset) {
         int rowBottom = y + 18;
         boolean hovered = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= rowBottom;
         if (active) {
@@ -373,7 +403,7 @@ public final class ClickGui extends Screen {
         } else if (hovered) {
             RenderUtil.roundedRect(context, x, y, w, 18, r(5), palette.panelHover());
         }
-        context.drawTextWithShadow(textRenderer, label, x + 7, y + 5, active ? palette.text() : palette.textDim());
+        context.drawTextWithShadow(textRenderer, label, x + textInset, y + 5, active ? palette.text() : palette.textDim());
         return rowBottom + 3;
     }
 
@@ -385,7 +415,9 @@ public final class ClickGui extends Screen {
         RenderUtil.horizontalGradient(context, x + 2, y + 15, w - 4, 1, palette.accentGradientStart(), palette.accentGradientEnd());
         String text = search.isEmpty() ? "search modules..." : search;
         int color = search.isEmpty() ? palette.textDim() : palette.text();
-        context.drawTextWithShadow(textRenderer, "\u2315 " + text, x + 5, y + 4, color);
+        boolean searchIcon = com.logvex.crystal.assets.Assets.icon(context, "search", x + 11, y + 8, 10, color);
+        context.drawTextWithShadow(textRenderer, (searchIcon ? "" : SEARCH_GLYPH) + text,
+                x + (searchIcon ? 19 : 5), y + 4, color);
     }
 
     private void drawModuleList(DrawContext context, Palette palette, int x, int right, int mouseX, int mouseY) {
@@ -814,11 +846,13 @@ public final class ClickGui extends Screen {
             close();
             return true;
         }
-        if (button == 0 && inRect(mouseX, mouseY, panelRight - 92, panelTop + 5, 40, 14)) {
+        if (button == 0 && inRect(mouseX, mouseY, panelRight - KEYBIND_BUTTON_INSET, panelTop + 5,
+                KEYBIND_BUTTON_W, 14)) {
             openKeybindScreen();
             return true;
         }
-        if (button == 0 && inRect(mouseX, mouseY, panelRight - 48, panelTop + 5, 44, 14)) {
+        if (button == 0 && inRect(mouseX, mouseY, panelRight - PROFILE_BUTTON_INSET, panelTop + 5,
+                PROFILE_BUTTON_W, 14)) {
             openProfileScreen();
             return true;
         }

@@ -32,7 +32,7 @@ public final class WatermarkHudElement implements HudElement {
         Palette palette = bootstrap.theme().palette();
         String name = "LOGVEX";
         String suffix = " CRYSTAL";
-        int width = client.textRenderer.getWidth(name + suffix) + 14;
+        int width = client.textRenderer.getWidth(name + suffix) + 24;
         int height = 16;
         RenderUtil.softShadow(context, x, y, width, height, palette.radius(4), 70);
         RenderUtil.roundedGradientPanel(context, x, y, width, height, palette.radius(4),
@@ -43,6 +43,10 @@ public final class WatermarkHudElement implements HudElement {
             RenderUtil.catEars(context, x + 3, y - 5, 14, 5, palette.primary(), wiggle);
         }
         int textX = x + 7;
+        boolean mark = com.logvex.crystal.assets.Assets.icon(context, "crystal", x + 9, y + 8, 10, palette.primary());
+        if (mark) {
+            textX = x + 17;
+        }
         context.drawTextWithShadow(client.textRenderer, name, textX, y + 4, palette.primary());
         textX += client.textRenderer.getWidth(name);
         context.drawTextWithShadow(client.textRenderer, suffix, textX, y + 4, palette.secondary());
@@ -58,6 +62,6 @@ public final class WatermarkHudElement implements HudElement {
 
     @Override
     public int width(MinecraftClient client) {
-        return client.textRenderer.getWidth("LOGVEX CRYSTAL") + 14;
+        return client.textRenderer.getWidth("LOGVEX CRYSTAL") + 24;
     }
 }

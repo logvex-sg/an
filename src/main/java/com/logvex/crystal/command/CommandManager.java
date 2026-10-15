@@ -34,7 +34,7 @@ import net.minecraft.text.Text;
  *
  * <p>Subcommands: {@code help, toggle, bind, set, theme, preset, variant, opacity,
  * gradient, glow, radius, scale, animation, decorations, cat, reducedmotion, blur,
- * cursor, sounds, splash, hud, hudedit, save, load, version}.
+ * cursor, sounds, splash, hud, hudedit, assets, save, load, version}.
  */
 public final class CommandManager {
 
@@ -143,6 +143,7 @@ public final class CommandManager {
             case "save" -> save();
             case "load", "reload" -> load();
             case "list", "modules" -> list(args);
+            case "assets" -> assets(args);
             case "version", "ver" -> client.notify("LOGVEX CRYSTAL " + version(), NotificationLevel.INFO);
             default -> client.notify("Unknown command '" + command + "'. Try ; help",
                     NotificationLevel.WARN);
@@ -755,6 +756,23 @@ public final class CommandManager {
         client.notify("Unknown category '" + args.get(0) + "'", NotificationLevel.ERROR);
     }
 
+    private void assets(List<String> args) {
+        com.logvex.crystal.assets.AssetRegistry registry = com.logvex.crystal.assets.AssetRegistry.get();
+        if (!args.isEmpty() && args.get(0).equalsIgnoreCase("list")) {
+            client.notify(com.logvex.crystal.assets.AssetManifest.size() + " assets in the pack",
+                    NotificationLevel.INFO);
+            return;
+        }
+        if (!args.isEmpty() && args.get(0).equalsIgnoreCase("reload")) {
+            registry.releaseAll();
+            client.notify("Asset cache cleared; textures reload on next draw", NotificationLevel.SUCCESS);
+            return;
+        }
+        client.notify("Asset pack: " + com.logvex.crystal.assets.AssetManifest.size() + " assets, "
+                + registry.registered() + " loaded, " + registry.failures() + " missing",
+                registry.failures() > 0 ? NotificationLevel.WARN : NotificationLevel.SUCCESS);
+    }
+
     private void help() {
         client.notify("\u2661 LOGVEX CRYSTAL commands \u2661", NotificationLevel.CUTE);
         for (String line : new String[]{
@@ -771,7 +789,7 @@ public final class CommandManager {
                 "; favorite <module>",
                 "; waypoint <add|remove|list|clear> [name] [x y z]",
                 "; friend <add|remove|list> [name]",
-                "; save | load | list [category] | version"
+                "; save | load | list [category] | assets [list|reload] | version"
         }) {
             client.notify(line, NotificationLevel.INFO);
         }

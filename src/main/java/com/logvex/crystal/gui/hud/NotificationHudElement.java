@@ -63,16 +63,33 @@ public final class NotificationHudElement implements HudElement {
             RenderUtil.roundedRect(context, rowX + 1, rowY + 2, 2, rowHeight - 4, palette.radius(1),
                     ColorUtil.scaleAlpha(levelColor, alpha));
             String glyph = notification.level().glyph();
-            context.drawTextWithShadow(client.textRenderer, glyph, rowX + 6, rowY + 4,
-                    ColorUtil.scaleAlpha(levelColor, alpha));
+            boolean badge = com.logvex.crystal.assets.Assets.icon(context, "status_" + badgeName(notification),
+                    rowX + 11, rowY + 8, 10, levelColor);
+            if (!badge) {
+                context.drawTextWithShadow(client.textRenderer, glyph, rowX + 6, rowY + 4,
+                        ColorUtil.scaleAlpha(levelColor, alpha));
+            }
             context.drawTextWithShadow(client.textRenderer, notification.text(), rowX + 17, rowY + 4,
                     ColorUtil.scaleAlpha(palette.text(), alpha));
             if (bootstrap.theme().settings().catCosmetics) {
-                RenderUtil.paw(context, rowX + width - 9, rowY + 4, 1,
-                        ColorUtil.scaleAlpha(palette.tertiary(), alpha * 0.8f));
+                boolean paw = com.logvex.crystal.assets.Assets.icon(context, "paw", rowX + width - 9,
+                        rowY + 8, 10, ColorUtil.scaleAlpha(palette.tertiary(), alpha * 0.85f));
+                if (!paw) {
+                    RenderUtil.paw(context, rowX + width - 9, rowY + 4, 1,
+                            ColorUtil.scaleAlpha(palette.tertiary(), alpha * 0.8f));
+                }
             }
             index++;
         }
+    }
+
+    private String badgeName(Notification notification) {
+        return switch (notification.level()) {
+            case SUCCESS, CUTE -> "success";
+            case WARN -> "warn";
+            case ERROR -> "error";
+            case INFO -> "info";
+        };
     }
 
     private int levelColor(Notification notification, Palette palette) {

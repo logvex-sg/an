@@ -17,6 +17,10 @@ run-*/
 # OS
 .DS_Store
 
+# Python tooling bytecode
+__pycache__/
+*.pyc
+
 # Agent-local memory (never committed)
 .openhands/
 

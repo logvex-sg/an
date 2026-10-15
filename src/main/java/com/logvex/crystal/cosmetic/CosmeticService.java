@@ -18,17 +18,18 @@ import net.minecraft.client.gui.DrawContext;
  */
 public final class CosmeticService {
 
-    /** A single screen-space paw print that drifts up and fades. */
-    private record Particle(double x, double y, long bornAtMillis, double drift, int color) {
+    /** A single screen-space motif that drifts up and fades. */
+    private record Particle(double x, double y, long bornAtMillis, double drift, int color, String art) {
     }
 
     private static final int MAX_PARTICLES = 24;
     private static final long LIFETIME_MILLIS = 900L;
+    private static final String[] PARTICLE_ART = {"particle_paw", "particle_heart", "particle_sparkle", "particle_star"};
 
     private final Deque<Particle> particles = new ArrayDeque<>();
     private final Random random = new Random();
 
-    /** Spawns a small burst of paw prints at a screen position. */
+    /** Spawns a small burst of motifs at a screen position. */
     public void spawnPawBurst(double x, double y, int color) {
         if (!enabled()) {
             return;
@@ -38,8 +39,9 @@ public final class CosmeticService {
             for (int i = 0; i < count; i++) {
                 double dx = (random.nextDouble() - 0.5) * 10;
                 double dy = (random.nextDouble() - 0.5) * 6;
+                String art = PARTICLE_ART[random.nextInt(PARTICLE_ART.length)];
                 particles.addLast(new Particle(x + dx, y + dy, System.currentTimeMillis(),
-                        0.6 + random.nextDouble() * 0.8, color));
+                        0.6 + random.nextDouble() * 0.8, color, art));
                 while (particles.size() > MAX_PARTICLES) {
                     particles.removeFirst();
                 }
@@ -72,9 +74,13 @@ public final class CosmeticService {
                 float alpha = (1f - progress);
                 int size = Math.max(1, Math.round(1 + progress));
                 int color = ColorUtil.scaleAlpha(particle.color(), alpha * 0.7f);
-                com.logvex.crystal.render.RenderUtil.paw(context,
-                        (int) particle.x(), (int) (particle.y() - progress * 8 * particle.drift()),
-                        size, color);
+                int px = (int) particle.x();
+                int py = (int) (particle.y() - progress * 8 * particle.drift());
+                // Prefer the packaged particle art; fall back to the procedural paw.
+                if (!com.logvex.crystal.assets.Assets.icon(context, particle.art(), px, py,
+                        Math.max(4, size * 4), color)) {
+                    com.logvex.crystal.render.RenderUtil.paw(context, px, py, size, color);
+                }
             }
         }
     }

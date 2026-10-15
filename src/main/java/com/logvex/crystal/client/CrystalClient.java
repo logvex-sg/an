@@ -1,5 +1,6 @@
 package com.logvex.crystal.client;
 
+import com.logvex.crystal.assets.AssetRegistry;
 import com.logvex.crystal.combat.CombatService;
 import com.logvex.crystal.command.CommandManager;
 import com.logvex.crystal.config.AppearanceStore;
@@ -116,6 +117,11 @@ public final class CrystalClient implements ClientModInitializer {
         // Load appearance before anything reads a palette.
         copyInto(appearanceStore.load(), theme.settings());
         theme.update();
+        // Drop tinted icon variants whenever the palette changes so accents stay correct.
+        theme.addListener(palette -> AssetRegistry.get().releaseTinted());
+        net.fabricmc.fabric.api.resource.v1.ResourceLoader
+                .get(net.minecraft.resource.ResourceType.CLIENT_RESOURCES)
+                .registerReloader(AssetRegistry.ReloadListener.ID, new AssetRegistry.ReloadListener());
         friends.load();
         waypoints.load();
 
@@ -251,6 +257,16 @@ public final class CrystalClient implements ClientModInitializer {
                 if (smokeTick < 70) {
                     return;
                 }
+                // The ClickGUI has now drawn at least once, so the asset pack must have been
+                // resolved from the mod's own resources: prove the textures loaded, not fell
+                // back to the procedural motifs.
+                var assets = com.logvex.crystal.assets.AssetRegistry.get();
+                require(assets.image("logo") != null, "logo.png did not load from the asset pack");
+                require(assets.icon("crystal", 0xFFFFFFFF) != null, "crystal icon did not load");
+                require(assets.registered() > 0, "no textures were registered");
+                require(assets.failures() == 0, "asset pack reported " + assets.failures() + " failures");
+                LOG.info("LOGVEX CRYSTAL asset pack: {} assets, {} textures registered",
+                        com.logvex.crystal.assets.AssetManifest.size(), assets.registered());
                 shot("01-clickgui-combat");
                 clickGui().showAppearance();
                 require(((ClickGui) client.currentScreen).isAppearance(), "Appearance tab not selected");
@@ -391,7 +407,12 @@ public final class CrystalClient implements ClientModInitializer {
                 if (smokeTick < 320) {
                     return;
                 }
-                // Favourites round-trip through disk.
+                // Favourites round-trip through disk. Normalise first: a previous smoke run
+                // leaves AutoCrystal favourited on disk, so a bare toggle would flip it off.
+                if (favoritesStore.isFavorite("AutoCrystal")) {
+                    favoritesStore.toggleFavorite("AutoCrystal");
+                }
+                require(!favoritesStore.isFavorite("AutoCrystal"), "favourite state was not normalised");
                 favoritesStore.toggleFavorite("AutoCrystal");
                 require(favoritesStore.isFavorite("AutoCrystal"), "favourite was not recorded");
                 favoritesStore.markUsed("AutoTotem");

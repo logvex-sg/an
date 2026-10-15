@@ -7,6 +7,7 @@
   "authors": ["LOGVEX"],
   "contact": {},
   "license": "MIT",
+  "icon": "assets/logvex-crystal/icon.png",
   "environment": "client",
   "entrypoints": {
     "client": ["com.logvex.crystal.client.CrystalClient"]
