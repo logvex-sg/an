@@ -26,7 +26,7 @@ import java.io.IOException;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
@@ -166,23 +166,31 @@ public final class CrystalClient implements ClientModInitializer {
         // servers reject unknown slash commands, so Crystal commands never leave the client.
         ClientSendMessageEvents.ALLOW_CHAT.register(message -> !commands.handleChat(message));
         ClientSendMessageEvents.ALLOW_COMMAND.register(message -> !commands.handleChat("." + message));
-        HudRenderCallback.EVENT.register((context, tickCounter) -> {
-            if (!ScreenGuard.fontsReady()) {
-                return;
-            }
-            MinecraftClient client = MinecraftClient.getInstance();
-            FrameClock.tick(client);
-            // While a screen is open the HUD is drawn beneath it as a live preview; the
-            // HudEditor screen adds its own drag frames on top.
-            if (client.currentScreen == null || client.currentScreen instanceof com.logvex.crystal.gui.ClickGui
-                    || client.currentScreen instanceof com.logvex.crystal.gui.HudEditorScreen) {
-                hud.render(context, client, tickCounter.getDynamicDeltaTicks());
-            }
-            cosmetics.renderParticles(context, client);
-        });
+        // Register the whole Crystal HUD as one layer attached after the vanilla HUD.
+        HudElementRegistry.attachElementAfter(
+                net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements.MISC_OVERLAYS,
+                net.minecraft.util.Identifier.of("logvex-crystal", "hud"),
+                this::renderHud);
         // World-space ESP is collected and drawn inside the world render pass, where the
         // camera-relative matrix stack and vertex consumers are valid.
         net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents.BEFORE_DEBUG_RENDER.register(this::renderWorldEsp);
+    }
+
+    /** The Crystal HUD pass: every enabled HUD element, then the cosmetic particles. */
+    private void renderHud(net.minecraft.client.gui.DrawContext context,
+                           net.minecraft.client.render.RenderTickCounter tickCounter) {
+        if (!ScreenGuard.fontsReady()) {
+            return;
+        }
+        MinecraftClient client = MinecraftClient.getInstance();
+        FrameClock.tick(client);
+        // While a screen is open the HUD is drawn beneath it as a live preview; the
+        // HudEditor screen adds its own drag frames on top.
+        if (client.currentScreen == null || client.currentScreen instanceof com.logvex.crystal.gui.ClickGui
+                || client.currentScreen instanceof com.logvex.crystal.gui.HudEditorScreen) {
+            hud.render(context, client, tickCounter.getDynamicDeltaTicks());
+        }
+        cosmetics.renderParticles(context, client);
     }
 
     /**
