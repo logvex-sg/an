@@ -1,0 +1,55 @@
+package com.logvex.crystal.gui;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * Per-element placement: whether it is visible, which column it lives in, an explicit
+ * offset (used when the user drags it), and an opacity multiplier. Persisted alongside
+ * the module config.
+ *
+ * <p>An element with {@code customPosition == false} auto-stacks in its column; once the
+ * user drags it the flag flips and the explicit offsets win, so a freshly installed
+ * client still lays out sensibly without any stored positions.
+ */
+public final class HudLayout {
+
+    /** Placement of one element. */
+    public static final class Entry {
+        public boolean visible = true;
+        public boolean customPosition;
+        public int x;
+        public int y;
+        public float opacity = 1.0f;
+        public float scale = 1.0f;
+
+        public Entry copy() {
+            Entry e = new Entry();
+            e.visible = visible;
+            e.customPosition = customPosition;
+            e.x = x;
+            e.y = y;
+            e.opacity = opacity;
+            e.scale = scale;
+            return e;
+        }
+    }
+
+    private final Map<String, Entry> entries = new LinkedHashMap<>();
+
+    public Entry entry(String id) {
+        return entries.computeIfAbsent(id, k -> new Entry());
+    }
+
+    public boolean has(String id) {
+        return entries.containsKey(id);
+    }
+
+    public Map<String, Entry> all() {
+        return entries;
+    }
+
+    public void clear() {
+        entries.clear();
+    }
+}

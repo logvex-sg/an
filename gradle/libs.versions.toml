@@ -1,0 +1,12 @@
+[versions]
+# Build-plugin and test-tooling versions. The Minecraft / Yarn / Fabric-API matrix lives in
+# gradle.properties because the version catalog is resolved before project properties.
+fabric-loom = "1.18.4"
+junit = "5.11.4"
+gson = "2.13.2"
+
+[libraries]
+junit-bom = { group = "org.junit", name = "junit-bom", version.ref = "junit" }
+junit-jupiter = { group = "org.junit.jupiter", name = "junit-jupiter" }
+junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher" }
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "logvex-crystal",
+  "version": "${version}",
+  "name": "LOGVEX CRYSTAL",
+  "description": "A cute pastel crystal-PvP client for anarchy servers. Original kawaii theme engine, custom ClickGUI, pastel HUD and crystal combat tools. Pure client-side; no process manipulation.",
+  "authors": ["LOGVEX"],
+  "contact": {},
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.logvex.crystal.client.CrystalClient"]
+  },
+  "mixins": ["logvex-crystal.mixins.json"],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "${minecraft_version}",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

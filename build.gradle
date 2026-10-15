@@ -1,0 +1,82 @@
+plugins {
+    id 'fabric-loom' version "${loom_version}"
+    id 'java'
+}
+
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+version = "${project.minecraft_version}-${project.mod_version ?: 'dev'}"
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    testImplementation platform(libs.junit.bom)
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly libs.junit.platform.launcher
+    // Gson is provided by Minecraft at runtime; the test source set needs it directly for
+    // the pure-logic config codec tests.
+    testImplementation libs.gson
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(project.java_version as int)
+    }
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = project.java_version as int
+    options.compilerArgs += ['-Xlint:deprecation', '-Xlint:unchecked']
+}
+
+// The unit-test source set only exercises pure, Minecraft-independent logic (the theme
+// engine, colour maths, crystal damage model, config codecs). Loom gives Minecraft to the
+// main source set only, so tests must not import Minecraft classes.
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'loader_version', project.loader_version
+    inputs.property 'minecraft_version', project.minecraft_version
+
+    filesMatching('fabric.mod.json') {
+        expand(
+                'version': project.version,
+                'loader_version': project.loader_version,
+                'minecraft_version': project.minecraft_version
+        )
+    }
+}
+
+jar {
+    from('LICENSE') {
+        rename { "${it}_${project.archives_base_name}" }
+    }
+}
+
+// Headless GUI smoke harness: `./gradlew runClient -Psmoke=<ticks>` runs the dev client with
+// the opt-in screen driver enabled (see CrystalClient). Used to exercise ClickGUI/HUD open-close
+// cycles without a human at the keyboard.
+tasks.matching { it.name == 'runClient' }.configureEach {
+    if (project.hasProperty('smoke')) {
+        jvmArgs "-Dlogvex.smoke=true", "-Dlogvex.smoke.ticks=${project.property('smoke')}"
+    }
+}

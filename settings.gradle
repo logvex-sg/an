@@ -1,0 +1,20 @@
+pluginManagement {
+    repositories {
+        maven {
+            name = 'Fabric'
+            url = 'https://maven.fabricmc.net/'
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+// Lets Gradle auto-provision the Java 21 toolchain (Foojay Disco API) when no local
+// JDK 21 is installed, so a fresh machine can build without installing a second JDK
+// by hand. If you already have JDK 21, auto-detection finds it and this is unused.
+// Must be >= 1.0.0: 0.8.0 fails on Gradle 9.x (missing JvmVendorSpec constant).
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = 'logvex-crystal'
