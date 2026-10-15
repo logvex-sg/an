@@ -56,7 +56,7 @@ A dev-only, opt-in driver exercises the ClickGUI, Appearance tab, theme switchin
 editor and config persistence without a human at the keyboard:
 
 ```bash
-xvfb-run -a ./gradlew runClient -Psmoke=340
+xvfb-run -a ./gradlew runClient -Psmoke=440
 ```
 
 It fails loudly (and stops the client) if a screen does not install, a palette fails to
@@ -68,6 +68,12 @@ All commands are local-only. Prefix `;` or `.crystal`.
 
 | Command | Purpose |
 | --- | --- |
+| `; gui` / `; clickgui` | Open the ClickGUI |
+| `; category <name>` | Open the ClickGUI on a category |
+| `; appearance` / `; favorites` / `; recent` | Open the ClickGUI on that page |
+| `; keybinds` | Open the keybind editor |
+| `; profile <list\|save\|overwrite\|load\|delete\|starters\|gui>` | Manage configuration profiles |
+| `; favorite <module>` | Star/unstar a module |
 | `; toggle <module>` | Enable/disable a module |
 | `; bind <module> <key>` | Set a module keybind |
 | `; set <module> <setting> <value>` | Change any module setting |
@@ -76,10 +82,32 @@ All commands are local-only. Prefix `;` or `.crystal`.
 | `; opacity\|gradient\|glow\|scale\|animation <0..1>` | Appearance sliders |
 | `; radius <0..12>` | Corner rounding |
 | `; decorations\|cat\|motion\|blur\|cursor\|sounds\|splash <on\|off>` | Feature toggles |
+| `; easteregg <on\|off>` | Toggle the hidden cosmetic |
 | `; waypoint <add\|remove\|list\|clear> [name] [x y z]` | Manage waypoints |
 | `; friend <add\|remove\|list> [name]` | Manage the friend list |
 | `; hud <element> <on\|off>` / `hudedit` / `gui` | HUD control |
 | `; save` / `load` / `list [category]` / `version` | Config & info |
+
+## ClickGUI
+
+The ClickGUI is the control surface for the entire client — every module, setting,
+keybind, HUD element, appearance knob and config profile. Open it with `; gui` or the
+`Right Shift` keybind.
+
+* **Pages:** Modules, Appearance, Favourites and Recent, selected from the sidebar.
+* **Modules:** rounded cards per module with animated toggles, a favourite star, a
+  right-click context menu (toggle, bind, favourite, open the category) and hover tooltips.
+  Settings expand inline; sliders, dropdowns, keybind capture, colour pickers and toggles
+  are all editable in place. Shift-click a setting to reset it to its default.
+* **Appearance:** theme preset grid, accent colour pickers, opacity/gradient/glow/radius/
+  scale/animation sliders, decorative + cat-cosmetic toggles, reduced motion, blur, custom
+  cursor, GUI sounds, splash text, light/dark variant and the easter-egg toggle. Every
+  change applies live, with no restart, and persists to disk.
+* **Profiles:** save, load, rename, duplicate, delete, export and import named
+  configuration snapshots (see below).
+
+Module keybinds are handled by a small mixin on the vanilla keyboard: a bound key toggles
+its module while no screen is open, so it never steals input from the GUI or chat.
 
 ## Chest coordinate logger (local only)
 
@@ -99,11 +127,36 @@ notification toggle and chunk radius.
 ## Themes
 
 Presets: **Default, Femboy, Sakura Pink, Cotton Candy, Lavender Dream, Midnight Kitty,
-Soft Boy**, each in a **dark** or **light** pastel variant. Every appearance knob —
-accent colours, background opacity, gradient/glow intensity, corner radius, UI scale,
-animation speed, decorations, cat cosmetics, reduced motion, blur, custom cursor, GUI
-sounds, splash text — is persisted to `config/logvex-crystal/appearance.json` and applied
-live, with no restart.
+Soft Boy, Sakura Femboy, Sakura Cyber**, each in a **dark** or **light** pastel variant.
+Every appearance knob — accent colours, background opacity, gradient/glow intensity, corner
+radius, UI scale, animation speed, decorations, cat cosmetics, reduced motion, blur, custom
+cursor, GUI sounds, splash text — is persisted to `config/logvex-crystal/appearance.json`
+and applied live, with no restart.
+
+## Configuration profiles
+
+A profile is a named snapshot of all three configuration layers (modules, HUD layout and
+appearance). Manage them from the **Profiles** screen in the ClickGUI or the `; profile`
+command:
+
+```
+; profile save <name>       # snapshot the current setup (refuses to clobber)
+; profile overwrite <name>  # replace an existing profile
+; profile load <name>       # apply a saved profile or a starter
+; profile delete <name>
+; profile list              # saved profiles and the starter names
+; profile starters
+; profile gui               # open the Profiles screen
+```
+
+Rename, duplicate, export and import are available from the **Profiles** screen.
+
+Four starter profiles ship with the client — **Combat**, **Anarchy Survival**, **Minimal
+HUD** and **Pastel Aesthetics**. They are templates you load on demand and are never applied
+automatically. Profile files are schema-versioned, written atomically, and a corrupt file is
+moved aside (`*.json.corrupt`) rather than silently dropped; a profile written by a newer
+build is refused rather than misread. Export documents use the `.export.json` suffix and are
+kept out of the profile list.
 
 ## Configuration files
 
@@ -112,10 +165,12 @@ Written under `<game>/config/logvex-crystal/`:
 | File | Contents |
 | --- | --- |
 | `appearance.json` | Theme + appearance settings |
-| `modules.json` | Module enabled state and settings |
+| `modules.json` | Module enabled state, keybinds and settings |
 | `hud.json` | HUD element layout (position, scale, opacity) |
 | `friends.json` | Friend list |
 | `waypoints.json` | Saved waypoints |
+| `favorites.json` | Favourite modules and recently-used list |
+| `profiles/*.json` | Named configuration profiles |
 
 All stores are schema-versioned, written atomically, skip malformed entries on load, and
 refuse a newer schema so a future version's data is never silently downgraded.
@@ -127,9 +182,10 @@ src/main/java/com/logvex/crystal/
   client/     entrypoint and composition root
   module/     feature modules by category (combat, movement, player, render, hud, misc)
   render/     drawing helpers, screen projection, world-space ESP
-  gui/        ClickGUI, HUD manager, HUD editor, widgets
+  gui/        ClickGUI, HUD manager, HUD editor, keybind editor, profile manager
   theme/      presets, settings, engine, immutable palette
-  config/     JSON stores
+  config/     JSON stores, configuration profiles, favourites, starters
+  mixin/      keyboard keybind dispatch, splash/title tweaks
   combat/     crystal damage model and target tracking
   cosmetic/   paw-print particles and UI sounds
   command/    the ; command system
