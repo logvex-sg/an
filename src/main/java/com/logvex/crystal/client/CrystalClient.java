@@ -324,12 +324,62 @@ public final class CrystalClient implements ClientModInitializer {
                 saveAll();
                 smokeStage++;
             }
+            case 9 -> {
+                if (smokeTick < 300) {
+                    return;
+                }
+                // ChestLogger: prove the module enables, clusters a synthetic haul through
+                // its own worker, and delivers exactly one local notification - with no
+                // world loaded, which also proves the disabled/idle path is safe.
+                var chestLogger = modules.byName("ChestLogger");
+                require(chestLogger != null, "ChestLogger module not registered");
+                chestLogger.toggle(modules);
+                require(chestLogger.isEnabled(), "ChestLogger did not enable");
+                var scan = (com.logvex.crystal.module.misc.ChestLoggerModule) chestLogger;
+                java.util.List<com.logvex.crystal.scan.ChestPoint> haul = new java.util.ArrayList<>();
+                for (int i = 0; i < 30; i++) {
+                    haul.add(new com.logvex.crystal.scan.ChestPoint(i, 64, 0));
+                }
+                scan.service().submit("minecraft:overworld", haul, java.util.List.of(), 1_000L);
+                var reports = awaitReports(scan.service(), 1);
+                require(reports.size() == 1, "ChestLogger did not produce exactly one report");
+                require(reports.get(0).chestCount() == 30, "ChestLogger counted the wrong number of chests");
+                // A second identical submission must be suppressed as a duplicate.
+                scan.service().submit("minecraft:overworld", haul, java.util.List.of(), 2_000L);
+                sleepQuietly(200L);
+                require(scan.service().poll().isEmpty(), "ChestLogger duplicate was not suppressed");
+                chestLogger.toggle(modules);
+                require(!chestLogger.isEnabled(), "ChestLogger did not disable");
+                smokeStage++;
+            }
             default -> {
                 if (smokeTick >= SMOKE_TICKS) {
                     LOG.info("LOGVEX CRYSTAL smoke OK after {} ticks ({} modules)", smokeTick, modules.size());
                     client.scheduleStop();
                 }
             }
+        }
+    }
+
+    /** Polls the logger until it has produced {@code expected} reports, or a short timeout. */
+    private static java.util.List<com.logvex.crystal.scan.ChestReport> awaitReports(
+            com.logvex.crystal.scan.ChestLoggerService service, int expected) {
+        java.util.List<com.logvex.crystal.scan.ChestReport> collected = new java.util.ArrayList<>();
+        for (int attempt = 0; attempt < 50; attempt++) {
+            collected.addAll(service.poll());
+            if (collected.size() >= expected) {
+                return collected;
+            }
+            sleepQuietly(10L);
+        }
+        return collected;
+    }
+
+    private static void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

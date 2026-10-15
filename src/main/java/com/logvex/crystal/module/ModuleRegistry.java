@@ -36,7 +36,7 @@ import com.logvex.crystal.module.render.TracersModule;
 public final class ModuleRegistry {
 
     /** Number of concrete modules registered; asserted by the registry test. */
-    public static final int EXPECTED_MODULE_COUNT = 27;
+    public static final int EXPECTED_MODULE_COUNT = 28;
 
     private ModuleRegistry() {
     }
@@ -75,5 +75,6 @@ public final class ModuleRegistry {
         manager.register(new AutoReconnectModule());
         manager.register(new com.logvex.crystal.module.misc.ThemeModule());
         manager.register(new com.logvex.crystal.module.misc.HudEditorModule());
+        manager.register(new com.logvex.crystal.module.misc.ChestLoggerModule());
     }
 }

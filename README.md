@@ -67,6 +67,21 @@ All commands are local-only. Prefix `.lvx` or `.crystal`.
 | `.lvx hud <element> <on\|off>` / `hudedit` / `gui` | HUD control |
 | `.lvx save` / `load` / `list [category]` / `version` | Config & info |
 
+## Chest coordinate logger (local only)
+
+The `ChestLogger` module counts chests and trapped chests in the chunks the client already
+has loaded, groups nearby ones into clusters, and raises a **local** notification when a
+cluster reaches the threshold (30 chests by default). Each find records the dimension, the
+cluster centre and bounds, the chest count, the discovery time, and the names of players
+the client can already see nearby.
+
+This feature is deliberately **local-only**. There is no webhook, no upload, and no network
+code of any kind in it: it never transmits positions anywhere, and it has no hidden or
+remotely triggered mode. It reads only block-entity *types* in loaded chunks (never chest
+contents), and it never forces chunks to load. Settings: scan interval, threshold, cluster
+radius, vertical tolerance, minimum cluster size, duplicate radius, cooldown, player radius,
+notification toggle and chunk radius.
+
 ## Themes
 
 Presets: **Default, Femboy, Sakura Pink, Cotton Candy, Lavender Dream, Midnight Kitty,
@@ -105,6 +120,7 @@ src/main/java/com/logvex/crystal/
   cosmetic/   paw-print particles and UI sounds
   command/    the .lvx command system
   social/     friend list
+  scan/       local chest counting + clustering (ChestLogger)
   util/       maths, animation, waypoints
 src/test/java/  pure-logic unit tests (no Minecraft runtime needed)
 ```
