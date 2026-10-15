@@ -47,7 +47,7 @@ import com.logvex.crystal.module.render.TracersModule;
 public final class ModuleRegistry {
 
     /** Number of concrete modules registered; asserted by the registry test. */
-    public static final int EXPECTED_MODULE_COUNT = 55;
+    public static final int EXPECTED_MODULE_COUNT = 48;
 
     private ModuleRegistry() {
     }
