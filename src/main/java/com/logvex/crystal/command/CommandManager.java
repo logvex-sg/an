@@ -144,6 +144,7 @@ public final class CommandManager {
             case "load", "reload" -> load();
             case "list", "modules" -> list(args);
             case "errors", "diagnostics" -> errors(args);
+            case "diag" -> diagnostics();
             case "assets" -> assets(args);
             case "version", "ver" -> client.notify("LOGVEX CRYSTAL " + version(), NotificationLevel.INFO);
             default -> client.notify("Unknown command '" + command + "'. Try ; help",
@@ -785,6 +786,20 @@ public final class CommandManager {
         if (latest != null) {
             client.notify("Latest: " + latest.module() + " \u2014 " + latest.message(), NotificationLevel.INFO);
         }
+    }
+
+    /** Runs the Diagnostics module's report, enabling it first when necessary. */
+    private void diagnostics() {
+        Module module = client.modules().byName("Diagnostics");
+        if (!(module instanceof com.logvex.crystal.module.misc.DiagnosticsModule diagnostics)) {
+            client.notify("Diagnostics module unavailable", NotificationLevel.WARN);
+            return;
+        }
+        if (!module.isEnabled() && !module.enable(client.modules())) {
+            client.notify("Could not enable Diagnostics: " + module.lastError(), NotificationLevel.WARN);
+            return;
+        }
+        diagnostics.report();
     }
 
     private void assets(List<String> args) {

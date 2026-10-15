@@ -1,6 +1,7 @@
 package com.logvex.crystal.cosmetic;
 
 import com.logvex.crystal.client.CrystalClient;
+import com.logvex.crystal.util.BestEffort;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.sound.PositionedSoundInstance;
 import net.minecraft.registry.entry.RegistryEntry;
@@ -53,28 +54,24 @@ public final class GuiSounds {
         if (!enabled()) {
             return;
         }
-        try {
+        BestEffort.run("gui-sound", "UI sound", () -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client.getSoundManager() != null) {
                 client.getSoundManager().play(PositionedSoundInstance.ui(event.value(), volume, jitter(pitch)));
             }
-        } catch (Throwable ignored) {
-            // Audio is cosmetic; never let it break the UI.
-        }
+        });
     }
 
     private static void play(SoundEvent event, float volume, float pitch) {
         if (!enabled()) {
             return;
         }
-        try {
+        BestEffort.run("gui-sound", "UI sound", () -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client.getSoundManager() != null) {
                 client.getSoundManager().play(PositionedSoundInstance.ui(event, volume, jitter(pitch)));
             }
-        } catch (Throwable ignored) {
-            // Audio is cosmetic; never let it break the UI.
-        }
+        });
     }
 
     private static float jitter(float pitch) {

@@ -37,6 +37,46 @@ class ConfigIoTest {
     }
 
     @Test
+    void malformedFileNotifiesTheRecoveryListener(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("broken.json");
+        Files.writeString(file, "{ not json", StandardCharsets.UTF_8);
+        java.util.List<String> recovered = new java.util.ArrayList<>();
+        ConfigIo.onRecovery(recovered::add);
+        try {
+            assertNull(ConfigIo.readObject(file));
+        } finally {
+            ConfigIo.onRecovery(null);
+        }
+        assertEquals(java.util.List.of("broken.json"), recovered);
+    }
+
+    @Test
+    void absentFileDoesNotNotifyRecovery(@TempDir Path dir) {
+        java.util.List<String> recovered = new java.util.ArrayList<>();
+        ConfigIo.onRecovery(recovered::add);
+        try {
+            assertNull(ConfigIo.readObject(dir.resolve("missing.json")));
+        } finally {
+            ConfigIo.onRecovery(null);
+        }
+        assertTrue(recovered.isEmpty());
+    }
+
+    @Test
+    void healthyFileDoesNotNotifyRecovery(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("data.json");
+        ConfigIo.writeObject(file, new JsonObject());
+        java.util.List<String> recovered = new java.util.ArrayList<>();
+        ConfigIo.onRecovery(recovered::add);
+        try {
+            assertNotNull(ConfigIo.readObject(file));
+        } finally {
+            ConfigIo.onRecovery(null);
+        }
+        assertTrue(recovered.isEmpty());
+    }
+
+    @Test
     void writeThenReadRoundTrips(@TempDir Path dir) throws IOException {
         Path file = dir.resolve("data.json");
         JsonObject root = new JsonObject();

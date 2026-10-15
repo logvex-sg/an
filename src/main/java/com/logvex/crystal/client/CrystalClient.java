@@ -5,6 +5,7 @@ import com.logvex.crystal.combat.CombatService;
 import com.logvex.crystal.command.CommandManager;
 import com.logvex.crystal.config.AppearanceStore;
 import com.logvex.crystal.config.AutoSave;
+import com.logvex.crystal.config.ConfigIo;
 import com.logvex.crystal.config.ConfigManager;
 import com.logvex.crystal.config.ConfigPaths;
 import com.logvex.crystal.config.FavoritesStore;
@@ -83,6 +84,8 @@ public final class CrystalClient implements ClientModInitializer {
 
     private boolean wasInWorld;
     private AutoSave autoSave;
+    /** Config files that failed to parse during load; reported once the notification manager exists. */
+    private final java.util.List<String> loadWarnings = new java.util.ArrayList<>();
     /** True while reading config from disk, so loading does not immediately re-mark it dirty. */
     private boolean loadingConfig;
 
@@ -128,6 +131,9 @@ public final class CrystalClient implements ClientModInitializer {
         // changes collapses into one write. The shutdown hook flushes a pending save.
         autoSave = new AutoSave(1500L, this::saveAll);
         Setting.onAnyChange(setting -> autoSave.markDirty());
+        // Collect config files that failed to parse during load, and warn about them once
+        // the notification manager exists (see the end of onInitializeClient).
+        ConfigIo.onRecovery(loadWarnings::add);
 
         theme = new ThemeManager();
         appearanceStore = new AppearanceStore(ConfigPaths.appearance());
@@ -183,6 +189,10 @@ public final class CrystalClient implements ClientModInitializer {
 
         // Cute startup notice, deferred until fonts exist.
         notifications.cute("Logvex Crystal loaded \u2661");
+        for (String file : loadWarnings) {
+            LOG.warn("Config file {} could not be read; defaults were used", file);
+            notifications.warn("Config '" + file + "' was unreadable \u2014 defaults used (backup kept)");
+        }
         LOG.info("LOGVEX CRYSTAL ready: {} modules, theme '{}'", modules.size(), theme.palette().preset().label());
     }
 
@@ -273,6 +283,8 @@ public final class CrystalClient implements ClientModInitializer {
         try {
             combat.tick(client);
             com.logvex.crystal.world.WorldQuery.get().tick(client);
+            com.logvex.crystal.entity.EntityQuery.get().tick(client);
+            com.logvex.crystal.world.SessionStats.get().tick(client);
             modules.tickAll();
             notifications.prune();
             cosmetics.tick(client);
@@ -570,6 +582,7 @@ public final class CrystalClient implements ClientModInitializer {
         if (wasInWorld && !inWorld) {
             modules.onDisconnect();
             com.logvex.crystal.world.WorldQuery.get().invalidate();
+            com.logvex.crystal.entity.EntityQuery.get().invalidate();
             notifications.clear();
             // A disconnect is a natural save point: enabled states change on disconnect.
             autoSave.markDirty();

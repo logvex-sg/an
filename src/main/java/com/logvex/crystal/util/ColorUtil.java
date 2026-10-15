@@ -99,6 +99,58 @@ public final class ColorUtil {
         return isLight(background) ? dark : light;
     }
 
+    /**
+     * Builds an opaque colour from hue/saturation/value. {@code hue} is in degrees and wraps;
+     * {@code saturation} and {@code value} are 0..1. Used for the cosmetic rainbow easter
+     * egg and any other effect that walks the colour wheel.
+     */
+    public static int hsv(float hue, float saturation, float value) {
+        float h = ((hue % 360f) + 360f) % 360f / 60f;
+        float s = Math.max(0f, Math.min(1f, saturation));
+        float v = Math.max(0f, Math.min(1f, value));
+        int i = (int) Math.floor(h);
+        float f = h - i;
+        float p = v * (1 - s);
+        float q = v * (1 - s * f);
+        float t = v * (1 - s * (1 - f));
+        float r;
+        float g;
+        float b;
+        switch (i % 6) {
+            case 0 -> {
+                r = v;
+                g = t;
+                b = p;
+            }
+            case 1 -> {
+                r = q;
+                g = v;
+                b = p;
+            }
+            case 2 -> {
+                r = p;
+                g = v;
+                b = t;
+            }
+            case 3 -> {
+                r = p;
+                g = q;
+                b = v;
+            }
+            case 4 -> {
+                r = t;
+                g = p;
+                b = v;
+            }
+            default -> {
+                r = v;
+                g = p;
+                b = q;
+            }
+        }
+        return of(Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), 255);
+    }
+
     private static int clamp(int v) {
         return v < 0 ? 0 : Math.min(v, 255);
     }

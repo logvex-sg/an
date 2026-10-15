@@ -30,6 +30,19 @@ public final class ConfigIo {
     private static final String TEMP_SUFFIX = ".tmp";
     private static final String BACKUP_SUFFIX = ".bak";
 
+    /**
+     * A process-wide sink for "a config file could not be read, so defaults were used"
+     * notices. The client registers this to raise an in-game warning once at startup, so a
+     * corrupt file is reported to the user rather than silently reset. Deliberately
+     * Minecraft-independent, so the store tests can observe it too.
+     */
+    private static volatile java.util.function.Consumer<String> recoveryListener;
+
+    /** Registers the recovery listener (last registration wins). */
+    public static void onRecovery(java.util.function.Consumer<String> listener) {
+        recoveryListener = listener;
+    }
+
     private ConfigIo() {
     }
 
@@ -37,7 +50,8 @@ public final class ConfigIo {
      * Reads and parses a JSON object from {@code file}.
      *
      * @return the parsed object, or {@code null} when the file is absent, empty, malformed
-     *         or not a JSON object. Never throws.
+     *         or not a JSON object. Never throws. A file that exists but cannot be parsed
+     *         fires the recovery listener so the user learns defaults were used.
      */
     public static JsonObject readObject(Path file) {
         if (file == null || !Files.exists(file)) {
@@ -45,9 +59,25 @@ public final class ConfigIo {
         }
         try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             JsonElement root = JsonParser.parseReader(reader);
-            return root != null && root.isJsonObject() ? root.getAsJsonObject() : null;
+            JsonObject object = root != null && root.isJsonObject() ? root.getAsJsonObject() : null;
+            if (object == null) {
+                reportRecovery(file);
+            }
+            return object;
         } catch (Exception e) {
+            reportRecovery(file);
             return null;
+        }
+    }
+
+    private static void reportRecovery(Path file) {
+        java.util.function.Consumer<String> listener = recoveryListener;
+        if (listener != null) {
+            try {
+                listener.accept(file.getFileName().toString());
+            } catch (RuntimeException ignored) {
+                // A broken listener must never break a load.
+            }
         }
     }
 

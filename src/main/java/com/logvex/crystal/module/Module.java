@@ -46,6 +46,8 @@ public abstract class Module {
     private long lastTickNanos;
     private String lastError;
     private int errorCount;
+    private String lastThrottledKey;
+    private long lastThrottledMillis;
     private boolean alwaysEnabled;
     private ModuleContext context;
 
@@ -209,6 +211,33 @@ public abstract class Module {
         errorCount++;
         CrystalClient.LOG.error("Module {} {}", name, what, t);
         CrystalClient.errors().record(name, t);
+    }
+
+    /**
+     * Records a non-fatal failure from a subclass hook so it is logged with its stack trace
+     * and shows up in {@code ; errors}, rather than being silently swallowed. Subclasses
+     * calling this from {@link #onTick()} should rate-limit it (see {@link #reportErrorThrottled})
+     * so a persistent fault cannot flood the log every tick.
+     */
+    protected final void reportError(String what, Throwable t) {
+        recordFailure(what, t);
+    }
+
+    /**
+     * Like {@link #reportError} but records at most one failure per distinct message per
+     * {@code cooldownMillis}, for hooks that run every tick. Returns true when this call was
+     * recorded (so the caller can also notify the user once).
+     */
+    protected final boolean reportErrorThrottled(String what, Throwable t, long cooldownMillis) {
+        long now = System.currentTimeMillis();
+        String key = what + "|" + t.getClass().getName();
+        if (key.equals(lastThrottledKey) && now - lastThrottledMillis < cooldownMillis) {
+            return false;
+        }
+        lastThrottledKey = key;
+        lastThrottledMillis = now;
+        recordFailure(what, t);
+        return true;
     }
 
     /**

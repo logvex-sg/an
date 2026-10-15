@@ -75,4 +75,22 @@ class ColorUtilTest {
         assertTrue(ColorUtil.luminance(glow) > ColorUtil.luminance(source));
         assertEquals(0, ColorUtil.alpha(ColorUtil.glow(source, 0f)));
     }
+
+    @Test
+    void hsvHitsThePrimaryHues() {
+        assertEquals(255, ColorUtil.red(ColorUtil.hsv(0f, 1f, 1f)));
+        assertEquals(255, ColorUtil.green(ColorUtil.hsv(120f, 1f, 1f)));
+        assertEquals(255, ColorUtil.blue(ColorUtil.hsv(240f, 1f, 1f)));
+        // Zero saturation is greyscale; zero value is black.
+        int grey = ColorUtil.hsv(200f, 0f, 1f);
+        assertEquals(ColorUtil.red(grey), ColorUtil.blue(grey));
+        assertEquals(0, ColorUtil.luminance(ColorUtil.hsv(50f, 1f, 0f)));
+    }
+
+    @Test
+    void hsvWrapsHueAndAlwaysOpaque() {
+        assertEquals(ColorUtil.hsv(10f, 0.5f, 0.8f), ColorUtil.hsv(370f, 0.5f, 0.8f));
+        assertEquals(ColorUtil.hsv(10f, 0.5f, 0.8f), ColorUtil.hsv(-350f, 0.5f, 0.8f));
+        assertEquals(255, ColorUtil.alpha(ColorUtil.hsv(180f, 0.4f, 0.9f)));
+    }
 }

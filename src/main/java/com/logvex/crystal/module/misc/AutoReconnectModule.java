@@ -72,6 +72,9 @@ public final class AutoReconnectModule extends Module {
             net.minecraft.client.gui.screen.multiplayer.ConnectScreen.connect(
                     client.currentScreen, client, ServerAddress.parse(info.address), info, false, null);
         } catch (Throwable t) {
+            // A failed connect is expected sometimes (server full, offline); report it with a
+            // stack trace and tell the user rather than swallowing it.
+            reportError("reconnect attempt failed", t);
             context().notifications().error("Reconnect failed: " + t.getMessage());
         }
     }

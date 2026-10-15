@@ -120,8 +120,10 @@ public final class WorldEspRenderer {
                 Matrix4f matrix = matrices.peek().getPositionMatrix();
                 renderer.draw(Text.literal(label.text()), -width / 2f, 0, label.color(), false,
                         matrix, consumers, TextRenderer.TextLayerType.SEE_THROUGH, 0, 0xF000F0);
-            } catch (Throwable ignored) {
-                // A label must never break the render pass.
+            } catch (Throwable t) {
+                // A label must never break the render pass, but a persistent failure should
+                // still surface once via the log/; errors rather than vanish.
+                com.logvex.crystal.util.BestEffort.report("esp-label", "ESP label", t);
             } finally {
                 matrices.pop();
             }

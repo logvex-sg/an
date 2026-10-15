@@ -85,6 +85,9 @@ public final class HudManager {
                 HudManager::potionLines));
         register(new SimpleHudElement("speed", HudElement.Column.RIGHT, 70, false,
                 HudManager::speedLines));
+        register(new com.logvex.crystal.gui.hud.CrosshairHudElement());
+        register(new com.logvex.crystal.gui.hud.SessionHudElement());
+        register(new com.logvex.crystal.gui.hud.EntityCountHudElement());
         register(new KeystrokesHudElement());
     }
 
@@ -200,6 +203,26 @@ public final class HudManager {
         return elements.get(id);
     }
 
+    /**
+     * The module that owns a HUD element, or null when the element has no owning module
+     * (e.g. the notification feed). Used by the HUD editor to keep the element and its
+     * module's enabled state in step when the user hides or shows an element.
+     */
+    public com.logvex.crystal.module.Module moduleForElement(String id) {
+        for (com.logvex.crystal.module.Module module : modules.all()) {
+            if (module instanceof com.logvex.crystal.module.hud.HudToggleModule toggle
+                    && toggle.elementId().equals(id)) {
+                return module;
+            }
+        }
+        return null;
+    }
+
+    /** Every HUD element that has no owning toggle module (edited freely in the HUD editor). */
+    public boolean isManagedElement(String id) {
+        return moduleForElement(id) != null;
+    }
+
     public List<HudElement> elements() {
         return new ArrayList<>(elements.values());
     }
@@ -288,9 +311,12 @@ public final class HudManager {
                     }
                 }
             } catch (Throwable t) {
-                // A broken HUD element must never crash the frame.
-                CrystalClient.LOG.error("HUD element {} failed", element.id(), t);
-                entry.visible = false;
+                // A broken HUD element must never crash the frame. The element keeps its
+                // visibility so a single bad frame (e.g. transient state mid-world-load)
+                // cannot permanently hide a panel or desync it from its owning module;
+                // the failure is recorded so ; errors can surface it.
+                CrystalClient.LOG.error("HUD element {} failed to render", element.id(), t);
+                CrystalClient.errors().record(element.id(), t);
             }
         }
         for (OverlayRenderer overlay : overlays) {

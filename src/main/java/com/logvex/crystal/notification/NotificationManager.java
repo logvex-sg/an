@@ -1,5 +1,6 @@
 package com.logvex.crystal.notification;
 
+import com.logvex.crystal.util.BestEffort;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -61,11 +62,8 @@ public final class NotificationManager {
             snapshot = new ArrayList<>(listeners);
         }
         for (Listener listener : snapshot) {
-            try {
-                listener.onNotification(notification);
-            } catch (Throwable ignored) {
-                // A cosmetic listener must never break the producer.
-            }
+            BestEffort.run("notification-listener", "notification listener",
+                    () -> listener.onNotification(notification));
         }
     }
 

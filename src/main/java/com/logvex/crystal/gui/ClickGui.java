@@ -23,6 +23,7 @@ import com.logvex.crystal.theme.ThemeManager;
 import com.logvex.crystal.theme.ThemePreset;
 import com.logvex.crystal.theme.ThemeVariant;
 import com.logvex.crystal.util.Animator;
+import com.logvex.crystal.util.BestEffort;
 import com.logvex.crystal.util.ColorUtil;
 import com.logvex.crystal.util.KeyNames;
 import java.io.IOException;
@@ -114,6 +115,7 @@ public final class ClickGui extends Screen {
 
     private final Animator openAnim = new Animator(0f, 0.22f);
     private final Animator hoverAnim = new Animator(0f, 0.3f);
+    private final com.logvex.crystal.util.GradientBackground gradient = new com.logvex.crystal.util.GradientBackground();
 
     // Window position, as a pixel offset from the default margin. Persisted in the theme
     // settings so the panel reopens where the user left it, like a real client window.
@@ -168,11 +170,23 @@ public final class ClickGui extends Screen {
 
         // Dim + optional blur behind the panel, in real screen space.
         context.fill(0, 0, width, height, ColorUtil.withAlpha(0xFF000000, (int) (150 * open)));
+        // A slowly-drifting pastel wash behind the dim, so the theme's animated gradient is
+        // actually visible. Scaled by the open animation so it fades in with the panel.
+        if (open > 0.01f && theme.settings().gradientIntensity > 0f) {
+            gradient.update(palette, speed, theme.settings().reducedMotion);
+            // A low wash strength keeps the backdrop subtle, never a full-screen fill.
+            float wash = 0.18f * open;
+            RenderUtil.verticalGradient(context, 0, 0, width, height,
+                    ColorUtil.scaleAlpha(gradient.topColor(), wash),
+                    ColorUtil.scaleAlpha(gradient.bottomColor(), wash));
+        }
         if (theme.settings().blur && !theme.settings().reducedMotion) {
             try {
                 context.applyBlur();
-            } catch (Throwable ignored) {
-                // Blur is best-effort; some pipelines do not support it.
+            } catch (Throwable t) {
+                // Blur is best-effort; some pipelines do not support it. Report once so a
+                // persistently unsupported blur is visible, then stop retrying the log.
+                BestEffort.report("gui-blur", "ClickGUI blur", t);
             }
         }
 
@@ -289,9 +303,19 @@ public final class ClickGui extends Screen {
         if (!theme.settings().customCursor) {
             return;
         }
-        int color = palette.primary();
+        int color = theme.settings().easterEgg ? rainbowColor(0f) : palette.primary();
         RenderUtil.glow(context, mouseX - 1, mouseY - 1, 3, 3, 1, ColorUtil.scaleAlpha(color, 0.5f));
         RenderUtil.paw(context, mouseX - 3, mouseY - 3, 1, color);
+    }
+
+    /**
+     * The hue for the cosmetic rainbow easter egg, cycling with wall-clock time (slowed by
+     * the animation-speed setting). Purely decorative; only read when the egg is enabled.
+     */
+    private int rainbowColor(float offset) {
+        float speed = theme.settings().reducedMotion ? 0f : Math.max(0.1f, theme.settings().animationSpeed);
+        float hue = (System.currentTimeMillis() % 6000L) / 6000f * 360f * speed + offset;
+        return ColorUtil.hsv(hue, 0.55f, 1.0f);
     }
 
     /** Spawns the cosmetic paw-print burst at a GUI interaction point, if enabled. */
@@ -303,16 +327,19 @@ public final class ClickGui extends Screen {
     }
 
     private void drawHeader(DrawContext context, Palette palette) {
+        // The hidden easter egg tints the brand with a slow rainbow.
+        int titleColor = theme.settings().easterEgg ? rainbowColor(0f) : palette.primary();
+        int subtitleColor = theme.settings().easterEgg ? rainbowColor(120f) : palette.secondary();
         // Prefer the packaged crystal mark; fall back to the text wordmark when absent.
         boolean logoDrawn = com.logvex.crystal.assets.Assets.icon(context, "crystal",
-                panelLeft + 20, panelTop + 13, 16, palette.primary());
+                panelLeft + 20, panelTop + 13, 16, titleColor);
         int brandRight;
         if (logoDrawn) {
-            context.drawTextWithShadow(textRenderer, "LOGVEX", panelLeft + 32, panelTop + 4, palette.primary());
-            context.drawTextWithShadow(textRenderer, "CRYSTAL", panelLeft + 32, panelTop + 14, palette.secondary());
+            context.drawTextWithShadow(textRenderer, "LOGVEX", panelLeft + 32, panelTop + 4, titleColor);
+            context.drawTextWithShadow(textRenderer, "CRYSTAL", panelLeft + 32, panelTop + 14, subtitleColor);
             brandRight = panelLeft + 32 + textRenderer.getWidth("CRYSTAL");
         } else {
-            context.drawTextWithShadow(textRenderer, "LOGVEX CRYSTAL", panelLeft + 10, panelTop + 8, palette.primary());
+            context.drawTextWithShadow(textRenderer, "LOGVEX CRYSTAL", panelLeft + 10, panelTop + 8, titleColor);
             brandRight = panelLeft + 10 + textRenderer.getWidth("LOGVEX CRYSTAL");
         }
         if (theme.settings().decorations) {

@@ -32,8 +32,13 @@ public final class FastPlaceModule extends Module {
         try {
             var accessor = (com.logvex.crystal.mixin.MinecraftClientAccessor) client;
             accessor.crystal$setItemUseCooldown(cooldown.value());
-        } catch (Throwable ignored) {
-            // Accessor missing (e.g. a mapping change): fail quietly rather than break the tick.
+        } catch (Throwable t) {
+            // Accessor missing (e.g. a mapping change): report once, then disable so the
+            // module does not retry a broken cast every tick.
+            if (reportErrorThrottled("could not set the item-use cooldown", t, 5000L)) {
+                context().notifications().warn("FastPlace disabled: " + t.getClass().getSimpleName());
+            }
+            disable();
         }
     }
 }

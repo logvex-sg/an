@@ -80,7 +80,15 @@ public final class HudEditorScreen extends Screen {
                     && click.y() >= bounds[1] - 2 && click.y() <= bounds[1] + bounds[3] + 2) {
                 HudLayout.Entry entry = hud.layout().entry(element.id());
                 if (click.button() == 1) {
-                    entry.visible = !entry.visible;
+                    // Toggle the owning module when there is one, so the element's
+                    // visibility and the module's enabled state can never disagree;
+                    // an unowned element (e.g. notifications) toggles directly.
+                    var owner = hud.moduleForElement(element.id());
+                    if (owner != null) {
+                        owner.toggle(hud.modules());
+                    } else {
+                        entry.visible = !entry.visible;
+                    }
                 } else {
                     dragging = element.id();
                     dragOffsetX = (int) click.x() - bounds[0];

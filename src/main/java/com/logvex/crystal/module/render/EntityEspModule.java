@@ -1,6 +1,8 @@
 package com.logvex.crystal.module.render;
 
 import com.logvex.crystal.client.CrystalClient;
+import com.logvex.crystal.entity.EntityCategory;
+import com.logvex.crystal.entity.EntityFilter;
 import com.logvex.crystal.module.Category;
 import com.logvex.crystal.render.esp.WorldEspCollector;
 import com.logvex.crystal.setting.BooleanSetting;
@@ -46,25 +48,29 @@ public final class EntityEspModule extends WorldEspModule {
         }
         Palette palette = CrystalClient.get() != null
                 ? CrystalClient.get().theme().palette() : null;
-        double maxDistance = range.value();
         int cap = maxEntities.value();
         int drawn = 0;
+        // The same visibility rules the HUD entity counter uses, so the two never disagree
+        // about what counts as a visible player/mob/item. ESP reads live entities (not the
+        // interval snapshot) so boxes stay frame-accurate during fast movement.
+        EntityFilter filter = buildFilter();
         for (Entity entity : client.world.getEntities()) {
             if (drawn >= cap) {
                 break;
             }
-            if (entity == client.player || entity.isRemoved() || entity.isInvisible()) {
+            if (entity == client.player || entity.isRemoved()) {
                 continue;
             }
-            if (!shouldDraw(client, entity)) {
-                continue;
-            }
+            boolean friend = friendColor.value() && entity instanceof PlayerEntity
+                    && CrystalClient.get() != null
+                    && CrystalClient.get().friends().isFriend(entity.getName().getString());
             double dist = client.player.distanceTo(entity);
-            if (dist > maxDistance) {
+            if (!filter.accepts(EntityCategory.of(entity), entity == client.player, friend,
+                    entity.isInvisible(), entity instanceof LivingEntity, dist, entity.getName().getString())) {
                 continue;
             }
             Box box = entity.getBoundingBox();
-            int color = colorFor(client, entity, palette);
+            int color = colorFor(entity, palette, friend);
             out.addBox(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ, color, 1.5f);
             drawn++;
             if (health.value() && entity instanceof LivingEntity living) {
@@ -82,19 +88,22 @@ public final class EntityEspModule extends WorldEspModule {
         }
     }
 
-    private boolean shouldDraw(MinecraftClient client, Entity entity) {
-        if (entity instanceof PlayerEntity) {
-            return players.value();
+    /** Translates the module's category toggles into the shared filter. */
+    private EntityFilter buildFilter() {
+        EntityFilter.Builder builder = EntityFilter.builder().range(range.value()).invisible(false);
+        if (players.value()) {
+            builder.categories(EntityCategory.PLAYER);
         }
-        if (entity instanceof net.minecraft.entity.ItemEntity) {
-            return items.value();
+        if (mobs.value()) {
+            builder.categories(EntityCategory.HOSTILE, EntityCategory.PASSIVE);
         }
-        return mobs.value() && entity instanceof net.minecraft.entity.mob.MobEntity;
+        if (items.value()) {
+            builder.categories(EntityCategory.ITEM);
+        }
+        return builder.build();
     }
 
-    private int colorFor(MinecraftClient client, Entity entity, Palette palette) {
-        boolean friend = friendColor.value() && entity instanceof PlayerEntity
-                && CrystalClient.get() != null && CrystalClient.get().friends().isFriend(entity.getName().getString());
+    private int colorFor(Entity entity, Palette palette, boolean friend) {
         if (friend) {
             return palette == null ? 0xFF8FE3FF : palette.crystalSelf();
         }

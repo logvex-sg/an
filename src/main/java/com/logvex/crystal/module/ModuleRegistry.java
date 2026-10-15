@@ -58,7 +58,7 @@ import com.logvex.crystal.module.render.TracersModule;
 public final class ModuleRegistry {
 
     /** Number of concrete modules registered; asserted by the registry test. */
-    public static final int EXPECTED_MODULE_COUNT = 59;
+    public static final int EXPECTED_MODULE_COUNT = 64;
 
     private ModuleRegistry() {
     }
@@ -123,11 +123,16 @@ public final class ModuleRegistry {
         manager.register(new com.logvex.crystal.module.hud.PotionModule());
         manager.register(new com.logvex.crystal.module.hud.SpeedModule());
         manager.register(new com.logvex.crystal.module.hud.KeystrokesModule());
+        manager.register(new com.logvex.crystal.module.hud.CrosshairModule());
+        manager.register(new com.logvex.crystal.module.hud.SessionModule());
+        manager.register(new com.logvex.crystal.module.hud.EntityCountModule());
         // Misc
         manager.register(new AntiAfkModule());
         manager.register(new AutoReconnectModule());
         manager.register(new com.logvex.crystal.module.misc.ThemeModule());
         manager.register(new com.logvex.crystal.module.misc.HudEditorModule());
         manager.register(new com.logvex.crystal.module.misc.ChestLoggerModule());
+        manager.register(new com.logvex.crystal.module.misc.DiagnosticsModule());
+        manager.register(new com.logvex.crystal.module.player.DurabilityAlertModule());
     }
 }
