@@ -13,6 +13,12 @@ import java.util.List;
  * HUD renders the queue with a fade. Producers run on the client thread and the HUD reads
  * on the render thread, so the deque is synchronized and entries are immutable. A
  * {@link Listener} hook lets the cosmetic layer play a sound when something is posted.
+ *
+ * <p>Filtering and suppression live here so they are applied uniformly: a level the user has
+ * hidden is dropped, an identical message posted again within the configured window is
+ * suppressed (so a module reporting the same event every tick cannot flood the screen), and
+ * a bounded history is kept for the history view. The preferences themselves are held in
+ * {@link NotificationSettings}.
  */
 public final class NotificationManager {
 
@@ -26,10 +32,25 @@ public final class NotificationManager {
     }
 
     private static final int MAX_ENTRIES = 24;
-    private static final long LIFETIME_MILLIS = 5200L;
+    private static final int MAX_HISTORY = 64;
+    private static final long DEFAULT_LIFETIME = 5200L;
 
     private final Deque<Notification> entries = new ArrayDeque<>();
+    private final Deque<Notification> history = new ArrayDeque<>();
     private final List<Listener> listeners = new ArrayList<>();
+    private NotificationSettings settings = new NotificationSettings();
+
+    private String lastText;
+    private long lastTextAt;
+
+    /** Replaces the preferences. A null argument restores the defaults. */
+    public void setSettings(NotificationSettings settings) {
+        this.settings = settings == null ? new NotificationSettings() : settings;
+    }
+
+    public NotificationSettings settings() {
+        return settings;
+    }
 
     public void addListener(Listener listener) {
         synchronized (listeners) {
@@ -50,11 +71,28 @@ public final class NotificationManager {
         if (text == null || text.isBlank()) {
             return;
         }
-        Notification notification = new Notification(text, level, System.currentTimeMillis(), actionBar);
+        NotificationLevel severity = level == null ? NotificationLevel.INFO : level;
+        NotificationSettings prefs = settings;
+        if (prefs != null && !prefs.shows(severity)) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (prefs != null && prefs.suppressDuplicates && isDuplicate(text, now, prefs.duplicateWindowMillis)) {
+            return;
+        }
+        lastText = text;
+        lastTextAt = now;
+        Notification notification = new Notification(text, severity, now, actionBar);
         synchronized (entries) {
             entries.addLast(notification);
             while (entries.size() > MAX_ENTRIES) {
                 entries.removeFirst();
+            }
+        }
+        synchronized (history) {
+            history.addLast(notification);
+            while (history.size() > MAX_HISTORY) {
+                history.removeFirst();
             }
         }
         List<Listener> snapshot;
@@ -65,6 +103,11 @@ public final class NotificationManager {
             BestEffort.run("notification-listener", "notification listener",
                     () -> listener.onNotification(notification));
         }
+    }
+
+    /** True when an identical message was posted within the suppression window. */
+    private boolean isDuplicate(String text, long now, long windowMillis) {
+        return windowMillis > 0 && text.equals(lastText) && now - lastTextAt < windowMillis;
     }
 
     public void info(String text) {
@@ -90,12 +133,16 @@ public final class NotificationManager {
 
     /** Drops expired entries. Called once per client tick. */
     public void prune() {
-        long cutoff = System.currentTimeMillis() - LIFETIME_MILLIS;
+        long cutoff = System.currentTimeMillis() - lifetime();
         synchronized (entries) {
             while (!entries.isEmpty() && entries.peekFirst().postedAtMillis() < cutoff) {
                 entries.removeFirst();
             }
         }
+    }
+
+    private long lifetime() {
+        return settings == null ? DEFAULT_LIFETIME : settings.durationMillis;
     }
 
     /** Snapshot of live entries, oldest first. Safe to call from the render thread. */
@@ -105,10 +152,31 @@ public final class NotificationManager {
         }
     }
 
-    /** 1.0 when freshly posted, falling to 0.0 at expiry. */
-    public static float alpha(Notification notification) {
+    /** Recent history, oldest first, including entries that have since expired. */
+    public List<Notification> history() {
+        synchronized (history) {
+            return new ArrayList<>(history);
+        }
+    }
+
+    public void clearHistory() {
+        synchronized (history) {
+            history.clear();
+        }
+    }
+
+    /** 1.0 when freshly posted, falling to 0.0 at expiry, using the configured lifetime. */
+    public float alpha(Notification notification) {
+        return alpha(notification, lifetime());
+    }
+
+    /** Alpha against an explicit lifetime, so a caller with custom settings stays correct. */
+    public static float alpha(Notification notification, long lifetimeMillis) {
+        if (lifetimeMillis <= 0) {
+            return 1f;
+        }
         long age = System.currentTimeMillis() - notification.postedAtMillis();
-        float remaining = 1.0f - (float) age / LIFETIME_MILLIS;
+        float remaining = 1.0f - (float) age / lifetimeMillis;
         return Math.max(0f, Math.min(1f, remaining));
     }
 

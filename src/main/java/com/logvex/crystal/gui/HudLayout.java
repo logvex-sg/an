@@ -22,6 +22,10 @@ public final class HudLayout {
         public int y;
         public float opacity = 1.0f;
         public float scale = 1.0f;
+        /** Draw a translucent rounded panel behind the element. */
+        public boolean background;
+        /** Draw a soft outline around the element. */
+        public boolean border;
 
         public Entry copy() {
             Entry e = new Entry();
@@ -31,6 +35,8 @@ public final class HudLayout {
             e.y = y;
             e.opacity = opacity;
             e.scale = scale;
+            e.background = background;
+            e.border = border;
             return e;
         }
     }

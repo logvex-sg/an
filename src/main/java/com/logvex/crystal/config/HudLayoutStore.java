@@ -57,6 +57,8 @@ public final class HudLayoutStore {
             json.addProperty("y", entry.y);
             json.addProperty("opacity", entry.opacity);
             json.addProperty("scale", entry.scale);
+            json.addProperty("background", entry.background);
+            json.addProperty("border", entry.border);
             elements.add(e.getKey(), json);
         }
         root.add("elements", elements);
@@ -86,6 +88,8 @@ public final class HudLayoutStore {
             entry.y = optInt(json, "y", entry.y);
             entry.opacity = clamp(optFloat(json, "opacity", entry.opacity), 0f, 1f);
             entry.scale = clamp(optFloat(json, "scale", entry.scale), 0.5f, 2f);
+            entry.background = optBool(json, "background", entry.background);
+            entry.border = optBool(json, "border", entry.border);
         }
     }
 

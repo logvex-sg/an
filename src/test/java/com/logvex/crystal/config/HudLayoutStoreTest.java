@@ -92,4 +92,16 @@ class HudLayoutStoreTest {
         assertEquals(1.0f, layout.entry("module-list").opacity, 1e-6);
         assertEquals(0.5f, layout.entry("module-list").scale, 1e-6);
     }
+
+    @Test
+    void backgroundAndBorderRoundTrip() {
+        HudLayout layout = new HudLayout();
+        layout.entry("watermark").background = true;
+        layout.entry("watermark").border = true;
+        JsonObject json = HudLayoutStore.toJson(layout);
+        HudLayout restored = new HudLayout();
+        HudLayoutStore.apply(json, restored);
+        assertTrue(restored.entry("watermark").background);
+        assertTrue(restored.entry("watermark").border);
+    }
 }

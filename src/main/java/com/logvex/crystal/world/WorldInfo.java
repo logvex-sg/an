@@ -132,4 +132,24 @@ public final class WorldInfo {
     public static boolean isLoaded(World world, int x, int z) {
         return world != null && world.isChunkLoaded(x >> 4, z >> 4);
     }
+
+    /** The block position the crosshair is pointing at, or null when it is not on a block. */
+    public static BlockPos targetBlock(MinecraftClient client) {
+        if (client == null || client.crosshairTarget == null
+                || client.crosshairTarget.getType() != net.minecraft.util.hit.HitResult.Type.BLOCK
+                || !(client.crosshairTarget instanceof net.minecraft.util.hit.BlockHitResult hit)) {
+            return null;
+        }
+        return hit.getBlockPos();
+    }
+
+    /** The entity the crosshair is pointing at, or null when it is not on an entity. */
+    public static net.minecraft.entity.Entity targetEntity(MinecraftClient client) {
+        if (client == null || client.crosshairTarget == null
+                || client.crosshairTarget.getType() != net.minecraft.util.hit.HitResult.Type.ENTITY
+                || !(client.crosshairTarget instanceof net.minecraft.util.hit.EntityHitResult hit)) {
+            return null;
+        }
+        return hit.getEntity();
+    }
 }

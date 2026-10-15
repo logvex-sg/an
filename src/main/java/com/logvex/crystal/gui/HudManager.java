@@ -14,6 +14,7 @@ import com.logvex.crystal.module.ModuleManager;
 import com.logvex.crystal.render.RenderUtil;
 import com.logvex.crystal.render.esp.WorldEspProvider;
 import com.logvex.crystal.theme.Palette;
+import com.logvex.crystal.util.ColorUtil;
 import com.logvex.crystal.theme.ThemeManager;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -88,6 +89,7 @@ public final class HudManager {
         register(new com.logvex.crystal.gui.hud.CrosshairHudElement());
         register(new com.logvex.crystal.gui.hud.SessionHudElement());
         register(new com.logvex.crystal.gui.hud.EntityCountHudElement());
+        register(new com.logvex.crystal.gui.hud.WorldInfoHudElement());
         register(new KeystrokesHudElement());
     }
 
@@ -386,6 +388,21 @@ public final class HudManager {
                 matrices.translate(-x, -y);
             }
             this.currentOpacity = clamp01(entry.opacity);
+            if (entry.background || entry.border) {
+                int w = element.width(client);
+                int h = element.height(client);
+                if (w > 0 && h > 0) {
+                    Palette palette = theme.palette();
+                    if (entry.background) {
+                        com.logvex.crystal.render.RenderUtil.roundedPanel(context, x - 3, y - 2, w + 6, h + 4,
+                                palette.radius(4), ColorUtil.scaleAlpha(palette.panel(), currentOpacity * 0.72f),
+                                palette.borderSoft());
+                    } else {
+                        com.logvex.crystal.render.RenderUtil.roundedPanel(context, x - 3, y - 2, w + 6, h + 4,
+                                palette.radius(4), 0, ColorUtil.scaleAlpha(palette.borderSoft(), currentOpacity));
+                    }
+                }
+            }
             element.render(context, client, tickDelta, x, y, right);
         } finally {
             this.currentOpacity = 1f;
@@ -408,6 +425,9 @@ public final class HudManager {
         int screenWidth = context.getScaledWindowWidth();
         java.util.Map<String, int[]> anchors = anchors(client, screenWidth);
         for (HudElement element : elements.values()) {
+            if (!element.draggable()) {
+                continue;
+            }
             int[] anchor = anchors.getOrDefault(element.id(), new int[]{leftMargin, leftMargin});
             int x = anchor[0];
             int y = anchor[1];

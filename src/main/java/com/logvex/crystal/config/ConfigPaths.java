@@ -37,6 +37,14 @@ public final class ConfigPaths {
         return directory().resolve("favorites.json");
     }
 
+    public static Path notifications() {
+        return directory().resolve("notifications.json");
+    }
+
+    public static Path context() {
+        return directory().resolve("context.json");
+    }
+
     /** Directory holding named configuration profiles. */
     public static Path profiles() {
         return directory().resolve("profiles");

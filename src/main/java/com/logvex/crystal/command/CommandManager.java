@@ -131,6 +131,11 @@ public final class CommandManager {
             case "hud" -> hud(args);
             case "hudedit" -> hudEdit();
             case "waypoint", "wp" -> waypoint(args);
+            case "world", "worldinfo" -> world();
+            case "entities", "entity" -> entities(args);
+            case "browser", "entitybrowser" -> openEntityBrowser();
+            case "notifications", "notifs" -> notifications(args);
+            case "context", "ctx" -> context(args);
             case "friend", "friends" -> friend(args);
             case "gui", "clickgui" -> openGui();
             case "category", "cat-tab" -> openCategory(args);
@@ -444,8 +449,10 @@ public final class CommandManager {
     // ------------------------------------------------------------ waypoints / friends
 
     private void waypoint(List<String> args) {
-        if (args.isEmpty()) {
-            client.notify("Usage: ; waypoint <add|remove|list|clear> [...]", NotificationLevel.WARN);
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("gui")) {
+            if (ScreenGuard.fontsReady()) {
+                MinecraftClient.getInstance().setScreen(new com.logvex.crystal.gui.WaypointScreen(client.theme()));
+            }
             return;
         }
         var store = client.waypoints();
@@ -478,10 +485,16 @@ public final class CommandManager {
                     return;
                 }
                 String dimension = mc.world != null ? mc.world.getRegistryKey().getValue().toString() : "";
-                store.put(new com.logvex.crystal.util.waypoint.Waypoint(name, x, y, z,
-                        client.theme().palette().primary(), dimension));
+                var candidate = new com.logvex.crystal.util.waypoint.Waypoint(name, x, y, z,
+                        client.theme().palette().primary(), dimension);
+                var duplicate = store.duplicateOf(candidate, 4);
+                store.put(candidate);
                 client.saveAll();
                 client.notify("Waypoint '" + name + "' at " + x + " " + y + " " + z, NotificationLevel.SUCCESS);
+                if (duplicate != null) {
+                    client.notify("Note: '" + duplicate.name() + "' is within 4 blocks of this spot",
+                            NotificationLevel.WARN);
+                }
             }
             case "remove", "del", "delete", "rm" -> {
                 if (args.size() < 2) {
@@ -505,13 +518,356 @@ public final class CommandManager {
                     client.notify("No waypoints saved", NotificationLevel.INFO);
                     return;
                 }
+                MinecraftClient mc = MinecraftClient.getInstance();
+                String dimension = com.logvex.crystal.world.WorldInfo.dimensionId(mc);
                 for (var waypoint : store.all()) {
+                    String nav = mc.player == null ? ""
+                            : " \u00B7 " + com.logvex.crystal.util.waypoint.Navigation.describe(waypoint,
+                            mc.player.getX(), mc.player.getY(), mc.player.getZ(), dimension);
                     client.notify(waypoint.name() + " " + waypoint.x() + " " + waypoint.y() + " "
-                            + waypoint.z(), NotificationLevel.INFO);
+                            + waypoint.z() + nav, NotificationLevel.INFO);
                 }
             }
-            default -> client.notify("Usage: ; waypoint <add|remove|list|clear> [...]",
+            case "export" -> client.notify("Waypoints are stored at " + storePath()
+                    + " (JSON, safe to copy)", NotificationLevel.INFO);
+            default -> client.notify("Usage: ; waypoint <add|remove|list|clear|gui> [...]",
                     NotificationLevel.WARN);
+        }
+    }
+
+    private static String storePath() {
+        return com.logvex.crystal.config.ConfigPaths.waypoints().toString();
+    }
+
+    /** Prints the world-information panel's lines to chat. */
+    private void world() {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        var module = client.modules().byClass(com.logvex.crystal.module.world.WorldInfoModule.class);
+        if (module == null) {
+            client.notify("WorldInfo module is unavailable", NotificationLevel.ERROR);
+            return;
+        }
+        if (mc.world == null || mc.player == null) {
+            client.notify("Not in a world", NotificationLevel.WARN);
+            return;
+        }
+        String[] lines = module.buildLines(mc);
+        if (lines.length == 0) {
+            client.notify("No world information selected (enable a WorldInfo section)",
+                    NotificationLevel.INFO);
+            return;
+        }
+        for (String line : lines) {
+            client.notify(line, NotificationLevel.INFO);
+        }
+    }
+
+    /**
+     * Reads the shared entity snapshot. This is a purely informational view of what the
+     * client can already see; it never claims to reveal entities the client cannot observe.
+     */
+    private void entities(List<String> args) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.world == null || mc.player == null) {
+            client.notify("Not in a world", NotificationLevel.WARN);
+            return;
+        }
+        var query = com.logvex.crystal.entity.EntityQuery.get();
+        if (query.size() == 0) {
+            client.notify("No entities in the current snapshot", NotificationLevel.INFO);
+            return;
+        }
+        String mode = args.isEmpty() ? "list" : args.get(0).toLowerCase(Locale.ROOT);
+        switch (mode) {
+            case "count" -> {
+                var counts = query.counts();
+                StringBuilder builder = new StringBuilder("entities " + query.size() + ":");
+                for (var entry : counts.entrySet()) {
+                    builder.append(' ').append(entry.getKey().label()).append(' ').append(entry.getValue());
+                }
+                client.notify(builder.toString(), NotificationLevel.INFO);
+            }
+            case "search" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; entities search <text>", NotificationLevel.WARN);
+                    return;
+                }
+                String needle = CommandTokenizer.join(args.subList(1, args.size())).toLowerCase(Locale.ROOT);
+                int shown = 0;
+                for (var info : query.all()) {
+                    if (info.name().toLowerCase(Locale.ROOT).contains(needle)
+                            || info.category().label().toLowerCase(Locale.ROOT).contains(needle)) {
+                        client.notify(info.name() + " (" + info.category().label() + ") "
+                                + com.logvex.crystal.util.Format.distance(info.distance()),
+                                NotificationLevel.INFO);
+                        if (++shown >= 12) {
+                            break;
+                        }
+                    }
+                }
+                if (shown == 0) {
+                    client.notify("No entities matching '" + needle + "'", NotificationLevel.INFO);
+                }
+            }
+            default -> {
+                int shown = 0;
+                for (var info : query.matching(null)) {
+                    client.notify(info.name() + " (" + info.category().label() + ") "
+                            + com.logvex.crystal.util.Format.distance(info.distance()),
+                            NotificationLevel.INFO);
+                    if (++shown >= 12) {
+                        break;
+                    }
+                }
+                if (query.size() > shown) {
+                    client.notify("\u2026 " + (query.size() - shown) + " more (see the entity browser)",
+                            NotificationLevel.INFO);
+                }
+            }
+        }
+    }
+
+    /** Reads and edits the notification preferences. */
+    private void notifications(List<String> args) {
+        var settings = client.notifications().settings();
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("list")) {
+            StringBuilder hidden = new StringBuilder();
+            for (var level : settings.hiddenLevels()) {
+                if (hidden.length() > 0) {
+                    hidden.append(", ");
+                }
+                hidden.append(level.name());
+            }
+            client.notify("notifications: " + (settings.sound ? "sound on" : "sound off")
+                    + ", " + settings.durationMillis + "ms, scale " + settings.scale
+                    + ", " + settings.position.label()
+                    + ", duplicates " + (settings.suppressDuplicates ? "suppressed" : "shown")
+                    + ", hidden [" + hidden + "]", NotificationLevel.INFO);
+            return;
+        }
+        switch (args.get(0).toLowerCase(Locale.ROOT)) {
+            case "history", "log" -> {
+                var history = client.notifications().history();
+                if (history.isEmpty()) {
+                    client.notify("No notification history", NotificationLevel.INFO);
+                    return;
+                }
+                int from = Math.max(0, history.size() - 10);
+                for (int i = from; i < history.size(); i++) {
+                    var entry = history.get(i);
+                    client.notify("[" + entry.level().name() + "] " + entry.text(), NotificationLevel.INFO);
+                }
+            }
+            case "clear" -> {
+                client.notifications().clearHistory();
+                client.notify("Notification history cleared", NotificationLevel.SUCCESS);
+            }
+            case "sound" -> {
+                if (args.size() < 2) {
+                    settings.sound = !settings.sound;
+                } else {
+                    Boolean value = parseBool(args.get(1));
+                    if (value == null) {
+                        client.notify("Usage: ; notifications sound <on|off>", NotificationLevel.WARN);
+                        return;
+                    }
+                    settings.sound = value;
+                }
+                client.saveAll();
+                client.notify("Notification sound " + (settings.sound ? "on" : "off"), NotificationLevel.SUCCESS);
+            }
+            case "duration" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; notifications duration <ms>", NotificationLevel.WARN);
+                    return;
+                }
+                try {
+                    settings.durationMillis = Long.parseLong(args.get(1));
+                    settings.clamp();
+                    client.saveAll();
+                    client.notify("Notification duration " + settings.durationMillis + "ms",
+                            NotificationLevel.SUCCESS);
+                } catch (NumberFormatException e) {
+                    client.notify("Duration must be a number of milliseconds", NotificationLevel.ERROR);
+                }
+            }
+            case "scale" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; notifications scale <0.5..2.0>", NotificationLevel.WARN);
+                    return;
+                }
+                try {
+                    settings.scale = Float.parseFloat(args.get(1));
+                    settings.clamp();
+                    client.saveAll();
+                    client.notify("Notification scale " + settings.scale, NotificationLevel.SUCCESS);
+                } catch (NumberFormatException e) {
+                    client.notify("Scale must be a number", NotificationLevel.ERROR);
+                }
+            }
+            case "position" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; notifications position <top_right|top_left|bottom_right|bottom_left>",
+                            NotificationLevel.WARN);
+                    return;
+                }
+                try {
+                    settings.position = com.logvex.crystal.notification.NotificationSettings.Position
+                            .valueOf(args.get(1).toUpperCase(Locale.ROOT));
+                    client.saveAll();
+                    client.notify("Notification position " + settings.position.label(), NotificationLevel.SUCCESS);
+                } catch (IllegalArgumentException e) {
+                    client.notify("Unknown position '" + args.get(1) + "'", NotificationLevel.ERROR);
+                }
+            }
+            case "duplicates", "dup" -> {
+                if (args.size() < 2) {
+                    settings.suppressDuplicates = !settings.suppressDuplicates;
+                } else {
+                    Boolean value = parseBool(args.get(1));
+                    if (value == null) {
+                        client.notify("Usage: ; notifications duplicates <on|off>", NotificationLevel.WARN);
+                        return;
+                    }
+                    settings.suppressDuplicates = value;
+                }
+                client.saveAll();
+                client.notify("Duplicate suppression "
+                        + (settings.suppressDuplicates ? "on" : "off"), NotificationLevel.SUCCESS);
+            }
+            case "level" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; notifications level <info|success|warn|error|cute> [on|off]",
+                            NotificationLevel.WARN);
+                    return;
+                }
+                NotificationLevel level;
+                try {
+                    level = NotificationLevel.valueOf(args.get(1).toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException e) {
+                    client.notify("Unknown level '" + args.get(1) + "'", NotificationLevel.ERROR);
+                    return;
+                }
+                boolean shown = args.size() < 3 ? !settings.shows(level) : Boolean.TRUE.equals(parseBool(args.get(2)));
+                settings.setShown(level, shown);
+                client.saveAll();
+                client.notify(level.name() + " notifications " + (shown ? "shown" : "hidden"),
+                        NotificationLevel.SUCCESS);
+            }
+            case "test" -> client.notifications().cute("Test notification \u2661");
+            default -> client.notify("Usage: ; notifications <list|history|clear|sound|duration|scale|"
+                    + "position|duplicates|level|test>", NotificationLevel.WARN);
+        }
+    }
+
+    /** Reads and edits opt-in contextual-profile rules. */
+    private void context(List<String> args) {
+        var service = client.contextProfiles();
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("list")) {
+            client.notify("context rules: " + (service.enabled() ? "on" : "off")
+                    + ", cooldown " + service.cooldownMillis() + "ms, " + service.bindings().size() + " rule(s)",
+                    NotificationLevel.INFO);
+            for (var binding : service.bindings()) {
+                var rule = binding.rule();
+                StringBuilder conditions = new StringBuilder();
+                if (!rule.dimension().isEmpty()) {
+                    conditions.append("dim=").append(rule.dimension());
+                }
+                if (!rule.serverContains().isEmpty()) {
+                    if (conditions.length() > 0) {
+                        conditions.append(" ");
+                    }
+                    conditions.append("server~").append(rule.serverContains());
+                }
+                if (rule.healthBelow() > 0) {
+                    if (conditions.length() > 0) {
+                        conditions.append(" ");
+                    }
+                    conditions.append("hp<").append(rule.healthBelow());
+                }
+                client.notify((binding.enabled() ? "* " : "  ") + binding.profileName()
+                        + " \u2190 " + conditions, NotificationLevel.INFO);
+            }
+            return;
+        }
+        switch (args.get(0).toLowerCase(Locale.ROOT)) {
+            case "on", "off" -> {
+                service.setEnabled(args.get(0).equalsIgnoreCase("on"));
+                client.saveAll();
+                client.notify("Contextual profiles " + (service.enabled() ? "enabled" : "disabled"),
+                        NotificationLevel.SUCCESS);
+            }
+            case "add" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; context add <profile> [dimension=<id>] [server=<text>] [hp<]<n>]",
+                            NotificationLevel.WARN);
+                    return;
+                }
+                String profile = args.get(1);
+                String dimension = "";
+                String server = "";
+                double healthBelow = 0;
+                for (int i = 2; i < args.size(); i++) {
+                    String token = args.get(i);
+                    if (token.startsWith("dimension=")) {
+                        dimension = token.substring("dimension=".length());
+                    } else if (token.startsWith("dim=")) {
+                        dimension = token.substring("dim=".length());
+                    } else if (token.startsWith("server=")) {
+                        server = token.substring("server=".length());
+                    } else if (token.startsWith("hp=")) {
+                        healthBelow = parseHealth(token.substring("hp=".length()));
+                    } else if (token.startsWith("hp<")) {
+                        healthBelow = parseHealth(token.substring("hp<".length()));
+                    }
+                }
+                var rule = new com.logvex.crystal.context.ContextRule(dimension, server, healthBelow);
+                if (!rule.hasConditions()) {
+                    client.notify("A rule needs at least one condition (dimension/server/hp)", NotificationLevel.WARN);
+                    return;
+                }
+                service.add(com.logvex.crystal.context.ContextProfileBinding.of(profile, rule));
+                client.saveAll();
+                client.notify("Context rule added for profile '" + profile + "'", NotificationLevel.SUCCESS);
+            }
+            case "remove", "del", "delete" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; context remove <profile>", NotificationLevel.WARN);
+                    return;
+                }
+                int removed = service.remove(args.get(1));
+                client.saveAll();
+                client.notify("Removed " + removed + " rule(s)", NotificationLevel.SUCCESS);
+            }
+            case "clear" -> {
+                service.clear();
+                client.saveAll();
+                client.notify("Context rules cleared", NotificationLevel.SUCCESS);
+            }
+            case "cooldown" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; context cooldown <ms>", NotificationLevel.WARN);
+                    return;
+                }
+                try {
+                    service.setCooldownMillis(Long.parseLong(args.get(1)));
+                    client.saveAll();
+                    client.notify("Context cooldown " + service.cooldownMillis() + "ms", NotificationLevel.SUCCESS);
+                } catch (NumberFormatException e) {
+                    client.notify("Cooldown must be a number of milliseconds", NotificationLevel.ERROR);
+                }
+            }
+            default -> client.notify("Usage: ; context <on|off|list|add|remove|clear|cooldown>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    private static double parseHealth(String value) {
+        try {
+            double v = Double.parseDouble(value);
+            return v > 1 ? v / 20.0 : v;
+        } catch (NumberFormatException e) {
+            return 0;
         }
     }
 
@@ -615,6 +971,19 @@ public final class CommandManager {
         }
         MinecraftClient.getInstance().setScreen(
                 new com.logvex.crystal.gui.KeybindScreen(client.modules(), client.theme(), null));
+    }
+
+    /** Opens the live entity browser. */
+    private void openEntityBrowser() {
+        if (!ScreenGuard.fontsReady()) {
+            return;
+        }
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.world == null || mc.player == null) {
+            client.notify("Not in a world", NotificationLevel.WARN);
+            return;
+        }
+        mc.setScreen(new com.logvex.crystal.gui.EntityBrowserScreen(client.theme()));
     }
 
     /** Manages named profiles: {@code list, save, load, delete, import, export, starters}. */
@@ -834,6 +1203,9 @@ public final class CommandManager {
                 "; profile <list|save|load|delete|starters|gui> [name]",
                 "; favorite <module>",
                 "; waypoint <add|remove|list|clear> [name] [x y z]",
+                "; world | entities <list|count|search <text>> | browser",
+                "; notifications <list|history|clear|sound|duration|scale|position|duplicates|level|test>",
+                "; context <on|off|list|add|remove|clear|cooldown>",
                 "; friend <add|remove|list> [name]",
                 "; save | load | list [category] | errors [clear] | assets [list|reload] | version"
         }) {

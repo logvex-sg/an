@@ -59,22 +59,65 @@ public final class HudEditorScreen extends Screen {
         Palette palette = theme.palette();
         anchors = hud.anchors(client, width);
         hud.renderEditorOverlay(context, client, palette, mouseX, mouseY);
-        RenderUtil.roundedPanel(context, 8, 8, 240, 26, 6, ColorUtil.withAlpha(palette.panel(), 220), palette.border());
+        renderOverlapWarnings(context, palette);
+        RenderUtil.roundedPanel(context, 8, 8, 300, 36, 6, ColorUtil.withAlpha(palette.panel(), 220), palette.border());
         context.drawTextWithShadow(textRenderer, "\u2661 HUD editor", 14, 12, palette.primary());
-        context.drawTextWithShadow(textRenderer, "drag \u00B7 right-click hide \u00B7 scroll scale \u00B7 shift-scroll fade \u00B7 Esc done",
+        context.drawTextWithShadow(textRenderer, "drag \u00B7 right-click hide \u00B7 scroll scale \u00B7 shift-scroll fade",
                 14, 22, palette.textDim());
+        context.drawTextWithShadow(textRenderer, "R reset \u00B7 B panel \u00B7 N outline \u00B7 Esc done",
+                14, 32, palette.textDim());
         if (dragging != null) {
             HudLayout.Entry entry = hud.layout().entry(dragging);
             entry.customPosition = true;
-            entry.x = mouseX - dragOffsetX;
-            entry.y = mouseY - dragOffsetY;
+            // Snap the drag to a small grid and keep the element fully on screen so a panel
+            // cannot be dragged off the edge where the user could never grab it again.
+            int w = Math.max(40, hud.element(dragging).width(client));
+            int h = Math.max(12, hud.element(dragging).height(client));
+            entry.x = HudSnap.clamp(HudSnap.snap(mouseX - dragOffsetX, 4), 0, Math.max(0, width - w));
+            entry.y = HudSnap.clamp(HudSnap.snap(mouseY - dragOffsetY, 4), 0, Math.max(0, height - h));
         }
         super.render(context, mouseX, mouseY, deltaTicks);
+    }
+
+    /** Draws a soft danger-coloured frame around elements that overlap another element. */
+    private void renderOverlapWarnings(DrawContext context, Palette palette) {
+        java.util.Map<String, HudSnap.Rect> rects = new java.util.LinkedHashMap<>();
+        for (HudElement element : hud.elements()) {
+            if (!element.draggable()) {
+                continue;
+            }
+            int[] b = boundsOf(element);
+            rects.put(element.id(), new HudSnap.Rect(b[0], b[1], b[2], b[3]));
+        }
+        java.util.Map<String, String> overlaps = HudSnap.findOverlaps(rects);
+        for (String id : overlaps.keySet()) {
+            int[] b = boundsOf(hud.element(id));
+            RenderUtil.roundedPanel(context, b[0] - 3, b[1] - 3, b[2] + 6, b[3] + 6, palette.radius(4), 0,
+                    ColorUtil.withAlpha(palette.danger(), 200));
+        }
+    }
+
+    /** The id of the element under the cursor, or null. */
+    private String hoveredElement(int mouseX, int mouseY) {
+        for (HudElement element : hud.elements()) {
+            if (!element.draggable()) {
+                continue;
+            }
+            int[] bounds = boundsOf(element);
+            if (mouseX >= bounds[0] - 2 && mouseX <= bounds[0] + bounds[2] + 2
+                    && mouseY >= bounds[1] - 2 && mouseY <= bounds[1] + bounds[3] + 2) {
+                return element.id();
+            }
+        }
+        return null;
     }
 
     @Override
     public boolean mouseClicked(Click click, boolean doubled) {
         for (HudElement element : hud.elements()) {
+            if (!element.draggable()) {
+                continue;
+            }
             int[] bounds = boundsOf(element);
             if (click.x() >= bounds[0] - 2 && click.x() <= bounds[0] + bounds[2] + 2
                     && click.y() >= bounds[1] - 2 && click.y() <= bounds[1] + bounds[3] + 2) {
@@ -153,6 +196,29 @@ public final class HudEditorScreen extends Screen {
             }
             close();
             return true;
+        }
+        String hovered = hoveredElement((int) mouseX, (int) mouseY);
+        if (hovered != null) {
+            HudLayout.Entry entry = hud.layout().entry(hovered);
+            switch (input.key()) {
+                case GLFW.GLFW_KEY_R -> {
+                    HudSnap.reset(entry);
+                    markDirty();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_B -> {
+                    entry.background = !entry.background;
+                    markDirty();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_N -> {
+                    entry.border = !entry.border;
+                    markDirty();
+                    return true;
+                }
+                default -> {
+                }
+            }
         }
         return super.keyPressed(input);
     }

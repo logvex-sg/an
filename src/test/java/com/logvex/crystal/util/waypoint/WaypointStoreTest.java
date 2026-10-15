@@ -123,4 +123,52 @@ class WaypointStoreTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new Waypoint("  ", 0, 0, 0, 0, ""));
     }
+
+    @Test
+    void duplicateOfFindsANearbySameDimensionWaypoint() {
+        WaypointStore store = new WaypointStore(Path.of("unused.json"));
+        store.put(new Waypoint("Base", 100, 64, 200, 0xFFFFFFFF, "minecraft:overworld"));
+        Waypoint near = new Waypoint("BaseCopy", 102, 64, 201, 0xFFFFFFFF, "minecraft:overworld");
+        assertNotNull(store.duplicateOf(near, 4));
+        // A waypoint in another dimension is not a duplicate of an overworld one.
+        Waypoint nether = new Waypoint("Portal", 100, 64, 200, 0xFFFFFFFF, "minecraft:the_nether");
+        assertEquals(null, store.duplicateOf(nether, 4));
+        // The same name is never its own duplicate.
+        assertEquals(null, store.duplicateOf(new Waypoint("Base", 100, 64, 200, 0xFFFFFFFF,
+                "minecraft:overworld"), 4));
+    }
+
+    @Test
+    void searchMatchesNamesCaseInsensitively() {
+        WaypointStore store = new WaypointStore(Path.of("unused.json"));
+        store.put(new Waypoint("Home Base", 0, 0, 0, 0xFFFFFFFF, ""));
+        store.put(new Waypoint("Mine", 0, 0, 0, 0xFFFFFFFF, ""));
+        assertEquals(1, store.search("home").size());
+        assertEquals(2, store.search("").size());
+        assertEquals(0, store.search("zzz").size());
+    }
+
+    @Test
+    void importMergesWithoutOverwritingAndIgnoresMalformed() {
+        WaypointStore store = new WaypointStore(Path.of("unused.json"));
+        store.put(new Waypoint("Existing", 1, 1, 1, 0xFFFFFFFF, ""));
+        JsonObject document = JsonParser.parseString("{\"schema\":1,\"waypoints\":["
+                + "{\"name\":\"Existing\",\"x\":9,\"y\":9,\"z\":9},"
+                + "{\"name\":\"Imported\",\"x\":2,\"y\":3,\"z\":4,\"dimension\":\"minecraft:overworld\"}]}")
+                .getAsJsonObject();
+        assertEquals(1, store.importFrom(document));
+        assertEquals(1, store.byName("Existing").x(), "an import must not overwrite an existing name");
+        assertNotNull(store.byName("Imported"));
+        assertEquals(0, store.importFrom(null));
+    }
+
+    @Test
+    void roundTripsThroughJson() {
+        WaypointStore store = new WaypointStore(Path.of("unused.json"));
+        store.put(new Waypoint("Round", 7, 8, 9, 0xFF123456, "minecraft:the_end"));
+        WaypointStore restored = new WaypointStore(Path.of("unused.json"));
+        restored.apply(store.toJson());
+        assertEquals(1, restored.size());
+        assertEquals(0xFF123456, restored.byName("Round").color());
+    }
 }

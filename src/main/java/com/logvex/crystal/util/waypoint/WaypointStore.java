@@ -74,6 +74,11 @@ public final class WaypointStore {
     }
 
     public void save() throws IOException {
+        ConfigIo.writeObject(file, toJson());
+    }
+
+    /** Serializes the store. Exposed so import/export and tests share one codec. */
+    public JsonObject toJson() {
         JsonObject root = new JsonObject();
         root.addProperty("schema", SCHEMA_VERSION);
         JsonArray array = new JsonArray();
@@ -88,7 +93,69 @@ public final class WaypointStore {
             array.add(entry);
         }
         root.add("waypoints", array);
-        ConfigIo.writeObject(file, root);
+        return root;
+    }
+
+    /**
+     * Finds an existing waypoint within {@code tolerance} blocks (in the same dimension) of a
+     * candidate, ignoring the candidate's own name. Used to warn before saving a near-duplicate
+     * instead of silently accumulating copies at the same spot.
+     */
+    public Waypoint duplicateOf(Waypoint candidate, int tolerance) {
+        if (candidate == null) {
+            return null;
+        }
+        int t = Math.max(0, tolerance);
+        for (Waypoint waypoint : waypoints) {
+            if (waypoint.name().equalsIgnoreCase(candidate.name())) {
+                continue;
+            }
+            if (!waypoint.dimension().equalsIgnoreCase(candidate.dimension())) {
+                continue;
+            }
+            if (Math.abs(waypoint.x() - candidate.x()) <= t
+                    && Math.abs(waypoint.y() - candidate.y()) <= t
+                    && Math.abs(waypoint.z() - candidate.z()) <= t) {
+                return waypoint;
+            }
+        }
+        return null;
+    }
+
+    /** Waypoints whose name contains {@code query} (case-insensitive), in stored order. */
+    public List<Waypoint> search(String query) {
+        List<Waypoint> result = new ArrayList<>();
+        String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        for (Waypoint waypoint : waypoints) {
+            if (needle.isEmpty() || waypoint.name().toLowerCase(Locale.ROOT).contains(needle)) {
+                result.add(waypoint);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Merges the waypoints from an exported document into this store. Names already present
+     * are skipped (never overwritten) and a malformed document is ignored, so an import can
+     * add waypoints but can never delete or corrupt existing ones.
+     *
+     * @return the number of waypoints added
+     */
+    public int importFrom(JsonObject document) {
+        if (document == null) {
+            return 0;
+        }
+        WaypointStore incoming = new WaypointStore(file);
+        incoming.apply(document);
+        int added = 0;
+        for (Waypoint waypoint : incoming.all()) {
+            if (byName(waypoint.name()) != null) {
+                continue;
+            }
+            waypoints.add(waypoint);
+            added++;
+        }
+        return added;
     }
 
     public void load() {

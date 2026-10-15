@@ -63,6 +63,7 @@ public final class CrystalClient implements ClientModInitializer {
 
     private ThemeManager theme;
     private NotificationManager notifications;
+    private com.logvex.crystal.notification.NotificationStore notificationStore;
     private ModuleManager modules;
     private HudManager hud;
     private CombatService combat;
@@ -72,17 +73,27 @@ public final class CrystalClient implements ClientModInitializer {
     private HudLayoutStore hudLayoutStore;
     private FavoritesStore favoritesStore;
     private ProfileService profileService;
+    private final com.logvex.crystal.context.ContextProfileService contextProfiles =
+            new com.logvex.crystal.context.ContextProfileService();
+    private final com.logvex.crystal.context.ContextStore contextStore =
+            new com.logvex.crystal.context.ContextStore(ConfigPaths.context());
     private CommandManager commands;
     private ClickGui clickGui;
     private KeyBinding clickGuiKey;
+    /** Optional keybind that bookmarks the player's current position as a waypoint. */
+    private KeyBinding bookmarkKey;
     private final com.logvex.crystal.social.FriendList friends =
             new com.logvex.crystal.social.FriendList(ConfigPaths.friends());
     private final com.logvex.crystal.util.waypoint.WaypointStore waypoints =
             new com.logvex.crystal.util.waypoint.WaypointStore(ConfigPaths.waypoints());
     private final com.logvex.crystal.render.esp.WorldEspCollector worldEsp =
             new com.logvex.crystal.render.esp.WorldEspCollector();
+    /** Entity lifecycle: spawn/despawn diffing and bounded per-entity history. */
+    private final com.logvex.crystal.entity.EntityTracker entityTracker =
+            new com.logvex.crystal.entity.EntityTracker();
 
     private boolean wasInWorld;
+    private String lastDimension = "";
     private AutoSave autoSave;
     /** Config files that failed to parse during load; reported once the notification manager exists. */
     private final java.util.List<String> loadWarnings = new java.util.ArrayList<>();
@@ -155,7 +166,13 @@ public final class CrystalClient implements ClientModInitializer {
         waypoints.load();
 
         notifications = new NotificationManager();
-        notifications.addListener(notification -> GuiSounds.notifyCute());
+        notificationStore = new com.logvex.crystal.notification.NotificationStore(ConfigPaths.notifications());
+        notificationStore.loadInto(notifications.settings());
+        notifications.addListener(notification -> {
+            if (notifications.settings().sound) {
+                GuiSounds.notifyCute();
+            }
+        });
         modules = new ModuleManager();
         combat = new CombatService();
         cosmetics = new CosmeticService();
@@ -177,6 +194,7 @@ public final class CrystalClient implements ClientModInitializer {
         favoritesStore.load();
         profileService = new ProfileService(new ProfileManager(ConfigPaths.profiles()), config,
                 hudLayoutStore, appearanceStore, hud.layout(), theme.settings(), this::afterConfigApply);
+        contextStore.loadInto(contextProfiles);
 
         commands = new CommandManager(this);
 
@@ -218,6 +236,9 @@ public final class CrystalClient implements ClientModInitializer {
         clickGuiKey = new KeyBinding("key.logvex-crystal.clickgui", InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_RIGHT_SHIFT, KeyBinding.Category.MISC);
         net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.registerKeyBinding(clickGuiKey);
+        bookmarkKey = new KeyBinding("key.logvex-crystal.bookmark", InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_UNKNOWN, KeyBinding.Category.MISC);
+        net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.registerKeyBinding(bookmarkKey);
     }
 
     private void registerCallbacks() {
@@ -284,6 +305,7 @@ public final class CrystalClient implements ClientModInitializer {
             combat.tick(client);
             com.logvex.crystal.world.WorldQuery.get().tick(client);
             com.logvex.crystal.entity.EntityQuery.get().tick(client);
+            entityTracker.update(com.logvex.crystal.entity.EntityQuery.get().all(), System.currentTimeMillis());
             com.logvex.crystal.world.SessionStats.get().tick(client);
             modules.tickAll();
             notifications.prune();
@@ -293,7 +315,11 @@ public final class CrystalClient implements ClientModInitializer {
                     clickGui().open();
                 }
             }
+            while (bookmarkKey.wasPressed()) {
+                bookmarkPosition(client);
+            }
             handleWorldTransitions(client);
+            evaluateContextProfiles(client);
             autoSave.tick(System.currentTimeMillis());
             if (SMOKE) {
                 runSmokeStep(client);
@@ -540,6 +566,46 @@ public final class CrystalClient implements ClientModInitializer {
                 client.setScreen(null);
                 smokeStage++;
             }
+            case 14 -> {
+                if (smokeTick < 420) {
+                    return;
+                }
+                // Contextual-profile rules must round-trip through disk, and the notification
+                // corner/scale preferences must persist and be honoured by the layout helper.
+                contextProfiles.setEnabled(true);
+                contextProfiles.setCooldownMillis(4321);
+                contextProfiles.clear();
+                contextProfiles.add(com.logvex.crystal.context.ContextProfileBinding.of("smoke-ctx",
+                        new com.logvex.crystal.context.ContextRule("minecraft:the_nether", "smoke.net", 0.4)));
+                notifications.settings().position =
+                        com.logvex.crystal.notification.NotificationSettings.Position.BOTTOM_LEFT;
+                notifications.settings().scale = 1.25f;
+                saveAll();
+                require(java.nio.file.Files.exists(ConfigPaths.context()), "context.json was not written");
+                require(com.logvex.crystal.notification.NotificationLayout.leftAligned(
+                                notifications.settings().position), "bottom-left must be left-aligned");
+                contextProfiles.clear();
+                contextProfiles.setEnabled(false);
+                reloadAll();
+                require(contextProfiles.enabled() && contextProfiles.cooldownMillis() == 4321,
+                        "context settings did not persist");
+                require(contextProfiles.bindings().size() == 1
+                                && contextProfiles.bindings().get(0).profileName().equals("smoke-ctx"),
+                        "context rule did not persist");
+                require(notifications.settings().position
+                                == com.logvex.crystal.notification.NotificationSettings.Position.BOTTOM_LEFT,
+                        "notification position did not persist");
+                require(Math.abs(notifications.settings().scale - 1.25f) < 1e-4,
+                        "notification scale did not persist");
+                // Leave the client in a clean state for the next run.
+                contextProfiles.clear();
+                contextProfiles.setEnabled(false);
+                notifications.settings().position =
+                        com.logvex.crystal.notification.NotificationSettings.Position.TOP_RIGHT;
+                notifications.settings().scale = 1.0f;
+                saveAll();
+                smokeStage++;
+            }
             default -> {
                 if (smokeTick >= SMOKE_TICKS) {
                     LOG.info("LOGVEX CRYSTAL smoke OK after {} ticks ({} modules)", smokeTick, modules.size());
@@ -577,17 +643,86 @@ public final class CrystalClient implements ClientModInitializer {
         }
     }
 
+    /**
+     * Bookmarks the player's current position as an auto-named waypoint, from the configurable
+     * keybind. The name is derived from the position so repeated presses never collide.
+     */
+    private void bookmarkPosition(MinecraftClient client) {
+        if (client.player == null || client.world == null) {
+            return;
+        }
+        int x = (int) Math.floor(client.player.getX());
+        int y = (int) Math.floor(client.player.getY());
+        int z = (int) Math.floor(client.player.getZ());
+        String dimension = client.world.getRegistryKey().getValue().toString();
+        String name = "bookmark-" + x + "_" + z;
+        var candidate = new com.logvex.crystal.util.waypoint.Waypoint(name, x, y, z,
+                theme.palette().primary(), dimension);
+        var duplicate = waypoints.duplicateOf(candidate, 2);
+        waypoints.put(candidate);
+        requestSave();
+        notify("Bookmarked '" + name + "' \u2661", NotificationLevel.SUCCESS);
+        if (duplicate != null) {
+            notify("Nearby: '" + duplicate.name() + "'", NotificationLevel.INFO);
+        }
+    }
+
     private void handleWorldTransitions(MinecraftClient client) {
         boolean inWorld = client.player != null && client.world != null;
         if (wasInWorld && !inWorld) {
             modules.onDisconnect();
             com.logvex.crystal.world.WorldQuery.get().invalidate();
             com.logvex.crystal.entity.EntityQuery.get().invalidate();
+            entityTracker.clear();
             notifications.clear();
             // A disconnect is a natural save point: enabled states change on disconnect.
             autoSave.markDirty();
+        } else if (inWorld) {
+            // A dimension change keeps the player connected but replaces the world, so the
+            // tracked entities are stale. Detect it by the dimension id changing.
+            String dimension = client.world.getRegistryKey().getValue().toString();
+            if (!dimension.equals(lastDimension)) {
+                entityTracker.clear();
+                com.logvex.crystal.entity.EntityQuery.get().invalidate();
+            }
+            lastDimension = dimension;
         }
         wasInWorld = inWorld;
+    }
+
+    /**
+     * Applies opt-in contextual profile rules. The service decides; this method only acts,
+     * and never applies a profile while a combat target is present so a switch cannot happen
+     * mid-fight. Called every tick, but the service's own cooldown keeps it cheap.
+     */
+    private void evaluateContextProfiles(MinecraftClient client) {
+        if (!contextProfiles.enabled() || client.player == null || client.world == null) {
+            return;
+        }
+        boolean inCombat = combat.currentTarget() != null;
+        String dimension = client.world.getRegistryKey().getValue().toString();
+        String server = client.getCurrentServerEntry() == null ? "" : client.getCurrentServerEntry().address;
+        float maxHealth = client.player.getMaxHealth();
+        double healthFraction = maxHealth <= 0 ? 1.0 : client.player.getHealth() / maxHealth;
+        var snapshot = com.logvex.crystal.context.ContextSnapshot.of(dimension, server, healthFraction,
+                client.player.isAlive());
+        long now = System.currentTimeMillis();
+        contextProfiles.decide(snapshot, inCombat, now).ifPresent(profile -> {
+            if (profileService.apply(profile)) {
+                contextProfiles.recordSwitch(profile, now);
+                notifications.info("Context: applied profile '" + profile + "'");
+            }
+        });
+    }
+
+    /** The contextual-profile rule engine. */
+    public com.logvex.crystal.context.ContextProfileService contextProfiles() {
+        return contextProfiles;
+    }
+
+    /** The contextual-profile persistence. */
+    public com.logvex.crystal.context.ContextStore contextStore() {
+        return contextStore;
     }
 
     /**
@@ -617,6 +752,8 @@ public final class CrystalClient implements ClientModInitializer {
             friends.save();
             waypoints.save();
             favoritesStore.save();
+            notificationStore.save(notifications.settings());
+            contextStore.save(contextProfiles);
         } catch (IOException e) {
             LOG.warn("Failed to save configuration", e);
         }
@@ -632,6 +769,8 @@ public final class CrystalClient implements ClientModInitializer {
             config.load();
             friends.load();
             waypoints.load();
+            notificationStore.loadInto(notifications.settings());
+            contextStore.loadInto(contextProfiles);
         } finally {
             loadingConfig = false;
         }
@@ -728,6 +867,11 @@ public final class CrystalClient implements ClientModInitializer {
     /** The persistent friend list, used to colour ESP and exclude friends from targeting. */
     public com.logvex.crystal.social.FriendList friends() {
         return friends;
+    }
+
+    /** Entity lifecycle tracker: spawn/despawn events and bounded history. */
+    public com.logvex.crystal.entity.EntityTracker entityTracker() {
+        return entityTracker;
     }
 
     /** The persisted waypoint list. */
