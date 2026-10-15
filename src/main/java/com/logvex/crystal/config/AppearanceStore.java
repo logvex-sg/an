@@ -1,20 +1,11 @@
 package com.logvex.crystal.config;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.logvex.crystal.theme.ThemePreset;
 import com.logvex.crystal.theme.ThemeSettings;
 import com.logvex.crystal.theme.ThemeVariant;
 import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 
 /**
  * Persists the appearance settings to {@code <config>/appearance.json}.
@@ -28,7 +19,6 @@ public final class AppearanceStore {
     /** Schema version of the on-disk format. Bump when the field set changes shape. */
     public static final int SCHEMA_VERSION = 1;
 
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     private final Path file;
 
@@ -42,38 +32,14 @@ public final class AppearanceStore {
 
     /** Loads settings from disk, or returns defaults when the file is absent/malformed. */
     public ThemeSettings load() {
-        if (!Files.exists(file)) {
-            return new ThemeSettings();
-        }
-        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            JsonElement root = JsonParser.parseReader(reader);
-            if (!root.isJsonObject()) {
-                return new ThemeSettings();
-            }
-            return fromJson(root.getAsJsonObject());
-        } catch (Exception e) {
-            // A corrupt config must never stop the client from starting; fall back to defaults.
-            return new ThemeSettings();
-        }
+        JsonObject root = ConfigIo.readObject(file);
+        return root == null ? new ThemeSettings() : fromJson(root);
     }
 
-    /** Writes settings atomically. */
+    /** Writes settings atomically, keeping a backup of the previous file. */
     public void save(ThemeSettings settings) throws IOException {
         settings.clamp();
-        JsonObject root = toJson(settings);
-        Path parent = file.getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
-        }
-        Path temp = file.resolveSibling(file.getFileName() + ".tmp");
-        try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
-            GSON.toJson(root, writer);
-        }
-        try {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException atomicFailed) {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-        }
+        ConfigIo.writeObject(file, toJson(settings));
     }
 
     /** Serializes settings to a JSON object (exposed for tests and diagnostics). */

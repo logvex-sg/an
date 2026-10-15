@@ -4,6 +4,7 @@ import com.logvex.crystal.assets.AssetRegistry;
 import com.logvex.crystal.combat.CombatService;
 import com.logvex.crystal.command.CommandManager;
 import com.logvex.crystal.config.AppearanceStore;
+import com.logvex.crystal.config.AutoSave;
 import com.logvex.crystal.config.ConfigManager;
 import com.logvex.crystal.config.ConfigPaths;
 import com.logvex.crystal.config.FavoritesStore;
@@ -15,15 +16,18 @@ import com.logvex.crystal.cosmetic.GuiSounds;
 import com.logvex.crystal.gui.ClickGui;
 import com.logvex.crystal.gui.HudManager;
 import com.logvex.crystal.gui.ScreenGuard;
+import com.logvex.crystal.logging.ModuleErrorLog;
 import com.logvex.crystal.module.ModuleContext;
 import com.logvex.crystal.module.ModuleManager;
 import com.logvex.crystal.module.ModuleRegistry;
 import com.logvex.crystal.notification.NotificationLevel;
 import com.logvex.crystal.notification.NotificationManager;
+import com.logvex.crystal.setting.Setting;
 import com.logvex.crystal.theme.ThemeManager;
 import com.logvex.crystal.util.FrameClock;
 import java.io.IOException;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
@@ -49,6 +53,12 @@ public final class CrystalClient implements ClientModInitializer {
     public static final Logger LOG = LoggerFactory.getLogger("LogvexCrystal");
 
     private static CrystalClient instance;
+    private static final ModuleErrorLog ERRORS = new ModuleErrorLog(64);
+
+    /** The shared record of module failures, for the {@code ; errors} diagnostic. */
+    public static ModuleErrorLog errors() {
+        return ERRORS;
+    }
 
     private ThemeManager theme;
     private NotificationManager notifications;
@@ -72,7 +82,9 @@ public final class CrystalClient implements ClientModInitializer {
             new com.logvex.crystal.render.esp.WorldEspCollector();
 
     private boolean wasInWorld;
-    private long lastSaveMillis;
+    private AutoSave autoSave;
+    /** True while reading config from disk, so loading does not immediately re-mark it dirty. */
+    private boolean loadingConfig;
 
     /** Opt-in headless driver: {@code -Dlogvex.smoke=true -Dlogvex.smoke.ticks=N}. */
     private static final boolean SMOKE = Boolean.getBoolean("logvex.smoke");
@@ -112,10 +124,21 @@ public final class CrystalClient implements ClientModInitializer {
         instance = this;
         LOG.info("LOGVEX CRYSTAL initialising");
 
+        // Debounced autosave: any setting change marks the config dirty, and a burst of
+        // changes collapses into one write. The shutdown hook flushes a pending save.
+        autoSave = new AutoSave(1500L, this::saveAll);
+        Setting.onAnyChange(setting -> autoSave.markDirty());
+
         theme = new ThemeManager();
         appearanceStore = new AppearanceStore(ConfigPaths.appearance());
-        // Load appearance before anything reads a palette.
-        copyInto(appearanceStore.load(), theme.settings());
+        // Load appearance before anything reads a palette. Loading must not mark the config
+        // dirty, or every launch would rewrite the files it just read.
+        loadingConfig = true;
+        try {
+            copyInto(appearanceStore.load(), theme.settings());
+        } finally {
+            loadingConfig = false;
+        }
         theme.update();
         // Drop tinted icon variants whenever the palette changes so accents stay correct.
         theme.addListener(palette -> AssetRegistry.get().releaseTinted());
@@ -136,7 +159,12 @@ public final class CrystalClient implements ClientModInitializer {
         hudLayoutStore = new HudLayoutStore(ConfigPaths.hud());
         hudLayoutStore.loadInto(hud.layout());
         modules.attachContext(new ModuleContext(modules, combat, theme, hud, notifications, config));
-        config.load();
+        loadingConfig = true;
+        try {
+            config.load();
+        } finally {
+            loadingConfig = false;
+        }
         applyHudVisibility();
 
         favoritesStore = new FavoritesStore(ConfigPaths.favorites());
@@ -149,9 +177,31 @@ public final class CrystalClient implements ClientModInitializer {
         registerKeybind();
         registerCallbacks();
 
+        // Flush any pending save when the client stops normally, so a change made in the
+        // last moments before quitting is not lost to the debounce window.
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> shutdown());
+
         // Cute startup notice, deferred until fonts exist.
         notifications.cute("Logvex Crystal loaded \u2661");
         LOG.info("LOGVEX CRYSTAL ready: {} modules, theme '{}'", modules.size(), theme.palette().preset().label());
+    }
+
+    /**
+     * Normal shutdown: stop background workers and flush a pending autosave. Runs once on the
+     * client thread before the game exits.
+     */
+    private void shutdown() {
+        try {
+            autoSave.flush(System.currentTimeMillis());
+            LOG.info("LOGVEX CRYSTAL saved configuration on shutdown ({} autosaves)", autoSave.saveCount());
+        } catch (Throwable t) {
+            LOG.warn("Shutdown save failed", t);
+        }
+        try {
+            modules.shutdownAll();
+        } catch (Throwable t) {
+            LOG.warn("Module shutdown failed", t);
+        }
     }
 
     private void registerKeybind() {
@@ -232,7 +282,7 @@ public final class CrystalClient implements ClientModInitializer {
                 }
             }
             handleWorldTransitions(client);
-            autoSave();
+            autoSave.tick(System.currentTimeMillis());
             if (SMOKE) {
                 runSmokeStep(client);
             }
@@ -521,17 +571,28 @@ public final class CrystalClient implements ClientModInitializer {
             modules.onDisconnect();
             com.logvex.crystal.world.WorldQuery.get().invalidate();
             notifications.clear();
+            // A disconnect is a natural save point: enabled states change on disconnect.
+            autoSave.markDirty();
         }
         wasInWorld = inWorld;
     }
 
-    private void autoSave() {
-        long now = System.currentTimeMillis();
-        if (now - lastSaveMillis < 60_000L) {
-            return;
+    /**
+     * Marks the configuration dirty so the debounced autosave will write it. Public so the
+     * GUI, commands and the HUD editor can request a save without writing on every frame.
+     */
+    public void requestSave() {
+        if (autoSave != null && !loadingConfig) {
+            autoSave.markDirty();
         }
-        lastSaveMillis = now;
+    }
+
+    /** Forces an immediate save (used by explicit save actions and on shutdown). */
+    public void saveNow() {
         saveAll();
+        if (autoSave != null) {
+            autoSave.flush(System.currentTimeMillis());
+        }
     }
 
     /** Persists appearance, HUD layout and module state. Safe to call from the client thread. */
@@ -550,16 +611,30 @@ public final class CrystalClient implements ClientModInitializer {
 
     /** Reloads appearance + module state from disk and re-applies it live. */
     public void reloadAll() {
-        copyInto(appearanceStore.load(), theme.settings());
-        theme.update();
-        hudLayoutStore.loadInto(hud.layout());
-        config.load();
-        friends.load();
-        waypoints.load();
+        loadingConfig = true;
+        try {
+            copyInto(appearanceStore.load(), theme.settings());
+            theme.update();
+            hudLayoutStore.loadInto(hud.layout());
+            config.load();
+            friends.load();
+            waypoints.load();
+        } finally {
+            loadingConfig = false;
+        }
         applyHudVisibility();
     }
 
-    /** Makes the HUD element visibility match the enabled state of the HUD toggle modules. */
+    /**
+     * Syncs HUD element visibility with the modules that own each element, so the module
+     * list and the HUD cannot disagree.
+     *
+     * <p>Two kinds of element: a {@code HudToggleModule} owns its element and dictates
+     * visibility, while a HUD element with no owning module (the notifications, for example)
+     * keeps whatever the user set in the layout editor - so this pass must never force such
+     * an element visible. Called on load and after a profile is applied; the per-element
+     * drag state is not disturbed.
+     */
     private void applyHudVisibility() {
         for (com.logvex.crystal.module.Module module : modules.all()) {
             if (module instanceof com.logvex.crystal.module.hud.HudToggleModule toggle) {

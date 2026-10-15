@@ -1,18 +1,11 @@
 package com.logvex.crystal.social;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import com.logvex.crystal.config.ConfigIo;
 import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Locale;
@@ -30,7 +23,6 @@ public final class FriendList {
 
     public static final int SCHEMA_VERSION = 1;
 
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     private final Set<String> names = new LinkedHashSet<>();
     private final Path file;
@@ -73,32 +65,13 @@ public final class FriendList {
             array.add(name);
         }
         root.add("friends", array);
-        Path parent = file.getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
-        }
-        Path temp = file.resolveSibling(file.getFileName() + ".tmp");
-        try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
-            GSON.toJson(root, writer);
-        }
-        try {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException atomicFailed) {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-        }
+        ConfigIo.writeObject(file, root);
     }
 
     public void load() {
-        if (!Files.exists(file)) {
-            return;
-        }
-        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            JsonElement root = JsonParser.parseReader(reader);
-            if (root.isJsonObject()) {
-                apply(root.getAsJsonObject());
-            }
-        } catch (Exception e) {
-            // A corrupt friend list must not stop the client from starting.
+        JsonObject root = ConfigIo.readObject(file);
+        if (root != null) {
+            apply(root);
         }
     }
 

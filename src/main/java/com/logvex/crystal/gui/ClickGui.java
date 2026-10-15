@@ -573,7 +573,8 @@ public final class ClickGui extends Screen {
     private void persistFavorites() {
         CrystalClient bootstrap = CrystalClient.get();
         if (bootstrap != null) {
-            bootstrap.saveAll();
+            // Debounced: a burst of favourite toggles collapses into one write.
+            bootstrap.requestSave();
         }
     }
 

@@ -28,6 +28,19 @@ public abstract class Setting<T> {
     private final List<BooleanSupplier> visibleWhen = new ArrayList<>();
     private SettingGroup group;
 
+    /**
+     * A process-wide hook fired whenever any setting's value actually changes. The client
+     * registers this to mark the configuration dirty, so a change made anywhere (GUI slider,
+     * command, keybind capture) is picked up by the debounced autosave without every call
+     * site having to remember to persist. Kept Minecraft-independent on purpose.
+     */
+    private static volatile Consumer<Setting<?>> anyChangeListener;
+
+    /** Registers the single global change listener (last registration wins). */
+    public static void onAnyChange(Consumer<Setting<?>> listener) {
+        anyChangeListener = listener;
+    }
+
     protected Setting(String name, String description, T defaultValue, Predicate<T> validator) {
         this.name = Objects.requireNonNull(name, "name");
         this.description = description == null ? "" : description;
@@ -65,6 +78,10 @@ public abstract class Setting<T> {
             this.value = newValue;
             if (onChange != null) {
                 onChange.accept(newValue);
+            }
+            Consumer<Setting<?>> global = anyChangeListener;
+            if (global != null) {
+                global.accept(this);
             }
         }
     }

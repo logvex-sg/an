@@ -143,6 +143,7 @@ public final class CommandManager {
             case "save" -> save();
             case "load", "reload" -> load();
             case "list", "modules" -> list(args);
+            case "errors", "diagnostics" -> errors(args);
             case "assets" -> assets(args);
             case "version", "ver" -> client.notify("LOGVEX CRYSTAL " + version(), NotificationLevel.INFO);
             default -> client.notify("Unknown command '" + command + "'. Try ; help",
@@ -185,8 +186,11 @@ public final class CommandManager {
             client.notify("Unknown key '" + args.get(1) + "'", NotificationLevel.ERROR);
             return;
         }
+        int cleared = client.modules().resolveKeybindConflict(module, key);
         module.keybind().set(key);
-        client.notify("Bound " + module.name() + " to " + module.keybind().displayValue(), NotificationLevel.SUCCESS);
+        String suffix = cleared > 0 ? " (cleared " + cleared + " conflict" + (cleared == 1 ? "" : "s") + ")" : "";
+        client.notify("Bound " + module.name() + " to " + module.keybind().displayValue() + suffix,
+                NotificationLevel.SUCCESS);
     }
 
     private void set(List<String> args) {
@@ -756,6 +760,33 @@ public final class CommandManager {
         client.notify("Unknown category '" + args.get(0) + "'", NotificationLevel.ERROR);
     }
 
+    /**
+     * Reports recent module failures. With {@code clear} it empties the log. This is the
+     * in-game view of the same errors written to the log file, so a player can see which
+     * module misbehaved without leaving the game.
+     */
+    private void errors(List<String> args) {
+        com.logvex.crystal.logging.ModuleErrorLog log = com.logvex.crystal.client.CrystalClient.errors();
+        if (!args.isEmpty() && args.get(0).equalsIgnoreCase("clear")) {
+            log.clear();
+            client.notify("Module error log cleared", NotificationLevel.SUCCESS);
+            return;
+        }
+        if (log.distinctModules() == 0) {
+            client.notify("No module errors recorded \u2661", NotificationLevel.SUCCESS);
+            return;
+        }
+        client.notify("Module errors: " + log.totalRecorded() + " across "
+                + log.distinctModules() + " module(s)", NotificationLevel.WARN);
+        for (var entry : log.ranked()) {
+            client.notify("  " + entry.getKey() + " \u00D7" + entry.getValue(), NotificationLevel.WARN);
+        }
+        var latest = log.latest();
+        if (latest != null) {
+            client.notify("Latest: " + latest.module() + " \u2014 " + latest.message(), NotificationLevel.INFO);
+        }
+    }
+
     private void assets(List<String> args) {
         com.logvex.crystal.assets.AssetRegistry registry = com.logvex.crystal.assets.AssetRegistry.get();
         if (!args.isEmpty() && args.get(0).equalsIgnoreCase("list")) {
@@ -789,7 +820,7 @@ public final class CommandManager {
                 "; favorite <module>",
                 "; waypoint <add|remove|list|clear> [name] [x y z]",
                 "; friend <add|remove|list> [name]",
-                "; save | load | list [category] | assets [list|reload] | version"
+                "; save | load | list [category] | errors [clear] | assets [list|reload] | version"
         }) {
             client.notify(line, NotificationLevel.INFO);
         }

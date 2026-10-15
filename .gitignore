@@ -26,3 +26,6 @@ __pycache__/
 
 # Distribution output
 dist/
+
+# Runtime logs
+logs/

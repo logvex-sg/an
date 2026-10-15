@@ -45,6 +45,7 @@ public abstract class Module {
     private long enabledAtMillis;
     private long lastTickNanos;
     private String lastError;
+    private int errorCount;
     private boolean alwaysEnabled;
     private ModuleContext context;
 
@@ -193,6 +194,23 @@ public abstract class Module {
         return lastError;
     }
 
+    /** How many times this module has thrown since the client started. */
+    public final int errorCount() {
+        return errorCount;
+    }
+
+    /**
+     * Records a failure: keeps the message for the module list, bumps the counter, logs the
+     * original throwable with its stack trace and files it in the shared error log so
+     * {@code ; errors} can report it. Never rethrows.
+     */
+    private void recordFailure(String what, Throwable t) {
+        lastError = t.toString();
+        errorCount++;
+        CrystalClient.LOG.error("Module {} {}", name, what, t);
+        CrystalClient.errors().record(name, t);
+    }
+
     /**
      * Enables the module. Returns false (without side effects) if a dependency is missing
      * or a conflict is active; the caller decides how to report that.
@@ -218,10 +236,10 @@ public abstract class Module {
             onEnable();
         } catch (Throwable t) {
             enabled = false;
-            lastError = t.toString();
-            CrystalClient.LOG.error("Module {} failed to enable", name, t);
+            recordFailure("failed to enable", t);
             return false;
         }
+        markConfigDirty();
         return true;
     }
 
@@ -233,8 +251,16 @@ public abstract class Module {
         try {
             onDisable();
         } catch (Throwable t) {
-            lastError = t.toString();
-            CrystalClient.LOG.error("Module {} failed to disable cleanly", name, t);
+            recordFailure("failed to disable cleanly", t);
+        }
+        markConfigDirty();
+    }
+
+    /** Tells the running client that the enabled-state changed, so the autosave persists it. */
+    private static void markConfigDirty() {
+        CrystalClient client = CrystalClient.get();
+        if (client != null) {
+            client.requestSave();
         }
     }
 
@@ -255,8 +281,7 @@ public abstract class Module {
         try {
             onTick();
         } catch (Throwable t) {
-            lastError = t.toString();
-            CrystalClient.LOG.error("Module {} threw during tick", name, t);
+            recordFailure("threw during tick", t);
         } finally {
             lastTickNanos = System.nanoTime() - start;
         }
@@ -269,7 +294,24 @@ public abstract class Module {
         }
     }
 
+    /**
+     * Releases resources at client shutdown. Unlike {@link #disable()} this leaves the
+     * enabled flag untouched, so a module the user had on is still on next launch. Modules
+     * that own threads or other native resources override {@link #onShutdown()}.
+     */
+    public final void shutdown() {
+        try {
+            onShutdown();
+        } catch (Throwable t) {
+            recordFailure("failed to shut down cleanly", t);
+        }
+    }
+
     // ---------------------------------------------------------------- hooks
+
+    /** Override to release resources on client shutdown. Runs even when the module is disabled. */
+    protected void onShutdown() {
+    }
 
     protected void onEnable() {
     }

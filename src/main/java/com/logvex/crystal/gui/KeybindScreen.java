@@ -197,15 +197,14 @@ public final class KeybindScreen extends Screen {
                 setStatus("Binding cancelled");
             } else {
                 Module target = capturing;
-                // Unbind any other module already holding this key, so conflicts are
-                // resolved at capture time rather than left for the user to clean up.
-                for (Module other : modules.all()) {
-                    if (other != target && other.keybind().isBound() && other.keybind().key() == key) {
-                        other.keybind().unbind();
-                    }
-                }
+                // Give the key to the module being bound, clearing it from any other holder
+                // so a single press never fires two modules. Centralised in the manager so
+                // the GUI and the ; bind command behave identically.
+                int cleared = modules.resolveKeybindConflict(target, key);
                 target.keybind().set(key);
-                setStatus("Bound " + target.name() + " to " + KeyNames.name(key));
+                setStatus(cleared > 0
+                        ? "Bound " + target.name() + " to " + KeyNames.name(key) + " (cleared " + cleared + ")"
+                        : "Bound " + target.name() + " to " + KeyNames.name(key));
                 changed();
             }
             capturing = null;
@@ -228,7 +227,7 @@ public final class KeybindScreen extends Screen {
     public void close() {
         CrystalClient bootstrap = CrystalClient.get();
         if (bootstrap != null) {
-            bootstrap.saveAll();
+            bootstrap.saveNow();
         }
         super.close();
     }

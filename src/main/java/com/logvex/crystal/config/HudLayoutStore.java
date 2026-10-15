@@ -1,18 +1,9 @@
 package com.logvex.crystal.config;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.logvex.crystal.gui.HudLayout;
 import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Map;
 
 /**
@@ -28,7 +19,6 @@ public final class HudLayoutStore {
     /** Schema version of the on-disk format. Bump when the field set changes shape. */
     public static final int SCHEMA_VERSION = 1;
 
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     private final Path file;
 
@@ -42,35 +32,15 @@ public final class HudLayoutStore {
 
     /** Reads stored placements into {@code layout}. Absent/corrupt files leave it untouched. */
     public void loadInto(HudLayout layout) {
-        if (!Files.exists(file)) {
-            return;
-        }
-        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            JsonElement root = JsonParser.parseReader(reader);
-            if (root.isJsonObject()) {
-                apply(root.getAsJsonObject(), layout);
-            }
-        } catch (Exception e) {
-            // A corrupt layout must never stop the client from starting.
+        JsonObject root = ConfigIo.readObject(file);
+        if (root != null) {
+            apply(root, layout);
         }
     }
 
-    /** Writes every entry in {@code layout} atomically. */
+    /** Writes every entry in {@code layout} atomically, keeping a backup of the previous file. */
     public void save(HudLayout layout) throws IOException {
-        JsonObject root = toJson(layout);
-        Path parent = file.getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
-        }
-        Path temp = file.resolveSibling(file.getFileName() + ".tmp");
-        try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
-            GSON.toJson(root, writer);
-        }
-        try {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException atomicFailed) {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-        }
+        ConfigIo.writeObject(file, toJson(layout));
     }
 
     /** Serializes a layout (exposed for tests and diagnostics). */

@@ -145,4 +145,9 @@ public final class ChestLoggerModule extends Module {
     public ChestLoggerService service() {
         return service;
     }
+
+    @Override
+    protected void onShutdown() {
+        service.close();
+    }
 }

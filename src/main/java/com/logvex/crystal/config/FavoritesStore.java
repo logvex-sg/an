@@ -1,17 +1,10 @@
 package com.logvex.crystal.config;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -34,7 +27,6 @@ public final class FavoritesStore {
     /** How many recently-used modules are remembered. */
     public static final int MAX_RECENT = 8;
 
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     private final Path file;
     private final Set<String> favorites = new LinkedHashSet<>();
@@ -89,33 +81,14 @@ public final class FavoritesStore {
     }
 
     public void load() {
-        if (!Files.exists(file)) {
-            return;
-        }
-        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            JsonElement root = JsonParser.parseReader(reader);
-            if (root.isJsonObject()) {
-                apply(root.getAsJsonObject());
-            }
-        } catch (Exception e) {
-            // A corrupt favourites file must never stop the client from starting.
+        JsonObject root = ConfigIo.readObject(file);
+        if (root != null) {
+            apply(root);
         }
     }
 
     public void save() throws IOException {
-        Path parent = file.getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
-        }
-        Path temp = file.resolveSibling(file.getFileName() + ".tmp");
-        try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
-            GSON.toJson(toJson(), writer);
-        }
-        try {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException atomicFailed) {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-        }
+        ConfigIo.writeObject(file, toJson());
     }
 
     /** Serializes the store (exposed for tests). */

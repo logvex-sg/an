@@ -185,4 +185,68 @@ class ModuleManagerTest {
         assertEquals(1, manager.byCategory(Category.MOVEMENT).size());
         assertEquals(0, manager.enabledCount());
     }
+
+    @Test
+    void boundToListsEveryHolderOfAKey() {
+        ModuleManager manager = new ModuleManager();
+        StubModule a = new StubModule(Category.MISC, "A");
+        StubModule b = new StubModule(Category.MISC, "B");
+        StubModule c = new StubModule(Category.MISC, "C");
+        manager.register(a);
+        manager.register(b);
+        manager.register(c);
+        a.keybind().set(10);
+        b.keybind().set(10);
+        c.keybind().set(20);
+
+        assertEquals(2, manager.boundTo(10).size());
+        assertEquals(1, manager.boundTo(20).size());
+        assertTrue(manager.boundTo(-1).isEmpty(), "unbound key matches nobody");
+        assertTrue(manager.boundTo(99).isEmpty());
+    }
+
+    @Test
+    void conflictsOfExcludesTheModuleItself() {
+        ModuleManager manager = new ModuleManager();
+        StubModule a = new StubModule(Category.MISC, "A");
+        StubModule b = new StubModule(Category.MISC, "B");
+        manager.register(a);
+        manager.register(b);
+        a.keybind().set(10);
+        b.keybind().set(10);
+
+        assertEquals(1, manager.conflictsOf(a).size());
+        assertEquals(b, manager.conflictsOf(a).get(0));
+        assertTrue(manager.hasKeybindConflicts());
+
+        b.keybind().unbind();
+        assertTrue(manager.conflictsOf(a).isEmpty());
+        assertFalse(manager.hasKeybindConflicts());
+    }
+
+    @Test
+    void resolveKeybindConflictUnbindsOtherHolders() {
+        ModuleManager manager = new ModuleManager();
+        StubModule a = new StubModule(Category.MISC, "A");
+        StubModule b = new StubModule(Category.MISC, "B");
+        manager.register(a);
+        manager.register(b);
+        a.keybind().set(10);
+        b.keybind().set(10);
+
+        int cleared = manager.resolveKeybindConflict(b, 10);
+        assertEquals(1, cleared);
+        assertFalse(a.keybind().isBound(), "the other holder loses the key");
+        assertFalse(manager.hasKeybindConflicts());
+    }
+
+    @Test
+    void resolveKeybindConflictOnUnboundKeyIsANoOp() {
+        ModuleManager manager = new ModuleManager();
+        StubModule a = new StubModule(Category.MISC, "A");
+        manager.register(a);
+        a.keybind().set(10);
+        assertEquals(0, manager.resolveKeybindConflict(a, -1));
+        assertTrue(a.keybind().isBound(), "clearing with an unbound key must not touch bindings");
+    }
 }

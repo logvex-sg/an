@@ -124,7 +124,18 @@ public final class ModuleManager {
                 module.onDisconnect();
             } catch (Throwable t) {
                 CrystalClient.LOG.error("Module {} failed during disconnect handling", module.name(), t);
+                CrystalClient.errors().record(module.name(), t);
             }
+        }
+    }
+
+    /**
+     * Releases every module's resources at client shutdown. Isolated per module so a single
+     * failure cannot leave later modules' workers running.
+     */
+    public void shutdownAll() {
+        for (Module module : ordered) {
+            module.shutdown();
         }
     }
 
@@ -165,5 +176,75 @@ public final class ModuleManager {
                 module.toggle(this);
             }
         }
+    }
+
+    // ------------------------------------------------------------ keybind conflicts
+
+    /**
+     * Every module whose keybind is {@code key}, in registration order. Empty when the key is
+     * unbound or held by nobody. The first entry is the "owner" the resolver keeps.
+     */
+    public List<Module> boundTo(int key) {
+        List<Module> result = new ArrayList<>();
+        if (key == KeybindSetting.UNBOUND) {
+            return result;
+        }
+        for (Module module : ordered) {
+            if (module.keybind().isBound() && module.keybind().key() == key) {
+                result.add(module);
+            }
+        }
+        return result;
+    }
+
+    /** The other modules sharing {@code module}'s key (excluding the module itself). */
+    public List<Module> conflictsOf(Module module) {
+        List<Module> result = new ArrayList<>();
+        int key = module.keybind().key();
+        if (!module.keybind().isBound()) {
+            return result;
+        }
+        for (Module other : ordered) {
+            if (other != module && other.keybind().isBound() && other.keybind().key() == key) {
+                result.add(other);
+            }
+        }
+        return result;
+    }
+
+    /** True when more than one module is bound to the same key. */
+    public boolean hasKeybindConflicts() {
+        java.util.Set<Integer> seen = new java.util.HashSet<>();
+        for (Module module : ordered) {
+            int key = module.keybind().key();
+            if (module.keybind().isBound() && !seen.add(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Gives {@code module} the key exclusively, unbinding every other module that held it.
+     *
+     * <p>Two modules on one key would both toggle from a single press, which is never what
+     * the user wants; this makes "last assignment wins" explicit instead of silently
+     * double-firing. The unbinds fire the settings' change hooks, so the GUI and the autosave
+     * both see them.
+     *
+     * @return the number of other modules that were unbound
+     */
+    public int resolveKeybindConflict(Module module, int key) {
+        if (key == KeybindSetting.UNBOUND) {
+            return 0;
+        }
+        int cleared = 0;
+        for (Module other : ordered) {
+            if (other != module && other.keybind().isBound() && other.keybind().key() == key) {
+                other.keybind().unbind();
+                cleared++;
+            }
+        }
+        return cleared;
     }
 }

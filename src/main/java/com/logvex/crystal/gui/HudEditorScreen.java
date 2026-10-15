@@ -41,6 +41,14 @@ public final class HudEditorScreen extends Screen {
         return false;
     }
 
+    /** Asks the client to persist the layout through the debounced autosave. */
+    private static void markDirty() {
+        CrystalClient bootstrap = CrystalClient.get();
+        if (bootstrap != null) {
+            bootstrap.requestSave();
+        }
+    }
+
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
         if (textRenderer == null) {
@@ -78,6 +86,7 @@ public final class HudEditorScreen extends Screen {
                     dragOffsetX = (int) click.x() - bounds[0];
                     dragOffsetY = (int) click.y() - bounds[1];
                 }
+                markDirty();
                 return true;
             }
         }
@@ -86,6 +95,9 @@ public final class HudEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(Click click) {
+        if (dragging != null) {
+            markDirty();
+        }
         dragging = null;
         return super.mouseReleased(click);
     }
@@ -103,6 +115,7 @@ public final class HudEditorScreen extends Screen {
                 } else {
                     entry.scale = clamp(entry.scale + (float) verticalAmount * 0.05f, 0.5f, 2f);
                 }
+                markDirty();
                 return true;
             }
         }
@@ -128,7 +141,7 @@ public final class HudEditorScreen extends Screen {
         if (input.key() == GLFW.GLFW_KEY_ESCAPE) {
             CrystalClient bootstrap = CrystalClient.get();
             if (bootstrap != null) {
-                bootstrap.saveAll();
+                bootstrap.saveNow();
             }
             close();
             return true;
