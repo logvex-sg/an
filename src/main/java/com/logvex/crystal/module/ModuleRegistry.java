@@ -18,6 +18,17 @@ import com.logvex.crystal.module.render.FullbrightModule;
 import com.logvex.crystal.module.render.HoleEspModule;
 import com.logvex.crystal.module.render.StorageEspModule;
 import com.logvex.crystal.module.render.WaypointEspModule;
+import com.logvex.crystal.module.render.PlayerEspModule;
+import com.logvex.crystal.module.render.MobEspModule;
+import com.logvex.crystal.module.render.ItemEspModule;
+import com.logvex.crystal.module.render.ProjectileEspModule;
+import com.logvex.crystal.module.render.ChestEspModule;
+import com.logvex.crystal.module.render.EnderChestEspModule;
+import com.logvex.crystal.module.render.ShulkerEspModule;
+import com.logvex.crystal.module.render.SpawnerEspModule;
+import com.logvex.crystal.module.render.BedEspModule;
+import com.logvex.crystal.module.render.PortalEspModule;
+import com.logvex.crystal.module.render.BlockEspModule;
 import com.logvex.crystal.module.movement.AutoWalkModule;
 import com.logvex.crystal.module.movement.FastStopModule;
 import com.logvex.crystal.module.movement.SprintModule;
@@ -36,7 +47,7 @@ import com.logvex.crystal.module.render.TracersModule;
 public final class ModuleRegistry {
 
     /** Number of concrete modules registered; asserted by the registry test. */
-    public static final int EXPECTED_MODULE_COUNT = 28;
+    public static final int EXPECTED_MODULE_COUNT = 55;
 
     private ModuleRegistry() {
     }
@@ -63,6 +74,17 @@ public final class ModuleRegistry {
         manager.register(new StorageEspModule());
         manager.register(new HoleEspModule());
         manager.register(new WaypointEspModule());
+        manager.register(new PlayerEspModule());
+        manager.register(new MobEspModule());
+        manager.register(new ItemEspModule());
+        manager.register(new ProjectileEspModule());
+        manager.register(new ChestEspModule());
+        manager.register(new EnderChestEspModule());
+        manager.register(new ShulkerEspModule());
+        manager.register(new SpawnerEspModule());
+        manager.register(new BedEspModule());
+        manager.register(new PortalEspModule());
+        manager.register(new BlockEspModule());
         // HUD
         manager.register(new WatermarkModule());
         manager.register(new ModuleListModule());
@@ -70,6 +92,15 @@ public final class ModuleRegistry {
         manager.register(new CrystalDamageModule());
         manager.register(new CoordsModule());
         manager.register(new PerformanceModule());
+        manager.register(new com.logvex.crystal.module.hud.BiomeModule());
+        manager.register(new com.logvex.crystal.module.hud.TimeModule());
+        manager.register(new com.logvex.crystal.module.hud.LightModule());
+        manager.register(new com.logvex.crystal.module.hud.NetworkModule());
+        manager.register(new com.logvex.crystal.module.hud.EntitiesModule());
+        manager.register(new com.logvex.crystal.module.hud.ArmorModule());
+        manager.register(new com.logvex.crystal.module.hud.PotionModule());
+        manager.register(new com.logvex.crystal.module.hud.SpeedModule());
+        manager.register(new com.logvex.crystal.module.hud.KeystrokesModule());
         // Misc
         manager.register(new AntiAfkModule());
         manager.register(new AutoReconnectModule());

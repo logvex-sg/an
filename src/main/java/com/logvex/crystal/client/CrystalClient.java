@@ -222,6 +222,7 @@ public final class CrystalClient implements ClientModInitializer {
         }
         try {
             combat.tick(client);
+            com.logvex.crystal.world.WorldQuery.get().tick(client);
             modules.tickAll();
             notifications.prune();
             cosmetics.tick(client);
@@ -518,6 +519,7 @@ public final class CrystalClient implements ClientModInitializer {
         boolean inWorld = client.player != null && client.world != null;
         if (wasInWorld && !inWorld) {
             modules.onDisconnect();
+            com.logvex.crystal.world.WorldQuery.get().invalidate();
             notifications.clear();
         }
         wasInWorld = inWorld;

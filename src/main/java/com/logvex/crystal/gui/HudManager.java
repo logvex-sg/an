@@ -3,9 +3,11 @@ package com.logvex.crystal.gui;
 import com.logvex.crystal.client.CrystalClient;
 import com.logvex.crystal.gui.hud.CoordsHudElement;
 import com.logvex.crystal.gui.hud.CrystalDamageHudElement;
+import com.logvex.crystal.gui.hud.KeystrokesHudElement;
 import com.logvex.crystal.gui.hud.ModuleListHudElement;
 import com.logvex.crystal.gui.hud.NotificationHudElement;
 import com.logvex.crystal.gui.hud.PerformanceHudElement;
+import com.logvex.crystal.gui.hud.SimpleHudElement;
 import com.logvex.crystal.gui.hud.TargetHudElement;
 import com.logvex.crystal.gui.hud.WatermarkHudElement;
 import com.logvex.crystal.module.ModuleManager;
@@ -52,6 +54,115 @@ public final class HudManager {
         register(new CoordsHudElement());
         register(new PerformanceHudElement());
         register(new NotificationHudElement());
+        registerReadouts();
+    }
+
+    /**
+     * Registers the compact informational readouts. Each is a {@link SimpleHudElement}
+     * whose lines are produced from the shared world/player helpers, so adding a readout is
+     * a few lines rather than a new class. Every one is toggled by a matching HUD module.
+     */
+    private void registerReadouts() {
+        register(new SimpleHudElement("biome", HudElement.Column.LEFT, 60, false,
+                client -> new String[]{"biome " + com.logvex.crystal.world.WorldInfo.biome(client)}));
+        register(new SimpleHudElement("time", HudElement.Column.LEFT, 64, false,
+                client -> new String[]{
+                        "time " + com.logvex.crystal.world.WorldInfo.dayPhase(client),
+                        "day " + (client.world == null ? "-" : (client.world.getTimeOfDay() / 24000L))}));
+        register(new SimpleHudElement("light", HudElement.Column.LEFT, 56, false,
+                client -> new String[]{
+                        "light " + com.logvex.crystal.world.WorldInfo.blockLight(client),
+                        "sky " + com.logvex.crystal.world.WorldInfo.skyLight(client)}));
+        register(new SimpleHudElement("network", HudElement.Column.RIGHT, 70, false,
+                client -> new String[]{
+                        "dim " + com.logvex.crystal.world.WorldInfo.dimension(client),
+                        "ping " + pingText(com.logvex.crystal.world.WorldInfo.ping(client))}));
+        register(new SimpleHudElement("entities", HudElement.Column.RIGHT, 78, false,
+                HudManager::entityCountLines));
+        register(new SimpleHudElement("armor", HudElement.Column.RIGHT, 78, false,
+                HudManager::armorLines));
+        register(new SimpleHudElement("potion", HudElement.Column.RIGHT, 96, false,
+                HudManager::potionLines));
+        register(new SimpleHudElement("speed", HudElement.Column.RIGHT, 70, false,
+                HudManager::speedLines));
+        register(new KeystrokesHudElement());
+    }
+
+    private static String pingText(int ping) {
+        return ping < 0 ? "-" : ping + "ms";
+    }
+
+    private static String[] entityCountLines(MinecraftClient client) {
+        if (client.world == null || client.player == null) {
+            return new String[0];
+        }
+        int players = 0;
+        int mobs = 0;
+        int items = 0;
+        for (var entity : client.world.getEntities()) {
+            if (entity instanceof net.minecraft.entity.player.PlayerEntity && entity != client.player) {
+                players++;
+            } else if (entity instanceof net.minecraft.entity.ItemEntity) {
+                items++;
+            } else if (entity instanceof net.minecraft.entity.mob.MobEntity) {
+                mobs++;
+            }
+        }
+        return new String[]{"players " + players, "mobs " + mobs, "items " + items};
+    }
+
+    private static String[] armorLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        int armor = client.player.getArmor();
+        int totalDurability = 0;
+        int maxDurability = 0;
+        for (net.minecraft.entity.EquipmentSlot slot : new net.minecraft.entity.EquipmentSlot[]{
+                net.minecraft.entity.EquipmentSlot.HEAD, net.minecraft.entity.EquipmentSlot.CHEST,
+                net.minecraft.entity.EquipmentSlot.LEGS, net.minecraft.entity.EquipmentSlot.FEET}) {
+            var stack = client.player.getEquippedStack(slot);
+            if (!stack.isEmpty() && stack.isDamageable()) {
+                totalDurability += stack.getMaxDamage() - stack.getDamage();
+                maxDurability += stack.getMaxDamage();
+            }
+        }
+        if (maxDurability == 0) {
+            return new String[]{"armor " + armor};
+        }
+        return new String[]{"armor " + armor, "dura " + com.logvex.crystal.util.Format.percent(totalDurability / (double) maxDurability)};
+    }
+
+    private static String[] potionLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        var effects = client.player.getStatusEffects();
+        if (effects.isEmpty()) {
+            return new String[]{"no effects"};
+        }
+        String[] lines = new String[Math.min(effects.size(), 5)];
+        int i = 0;
+        for (var effect : effects) {
+            if (i >= lines.length) {
+                break;
+            }
+            int seconds = effect.getDuration() / 20;
+            int amplifier = effect.getAmplifier();
+            lines[i++] = effect.getEffectType().value().getName().getString()
+                    + (amplifier > 0 ? " " + (amplifier + 1) : "")
+                    + " " + com.logvex.crystal.util.Format.duration(seconds);
+        }
+        return lines;
+    }
+
+    private static String[] speedLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        var velocity = client.player.getVelocity();
+        double bps = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) * 20.0;
+        return new String[]{String.format("%.2f bps", bps)};
     }
 
     public void register(HudElement element) {
