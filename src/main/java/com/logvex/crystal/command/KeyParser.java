@@ -4,7 +4,7 @@ import java.util.Locale;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * Parses a key name or mouse button into a GLFW code, so {@code .lvx bind} accepts readable
+ * Parses a key name or mouse button into a GLFW code, so {@code ; bind} accepts readable
  * input ("r", "f1", "mouse2") instead of raw numbers.
  */
 public final class KeyParser {

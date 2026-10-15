@@ -99,12 +99,22 @@ public final class ClickGui extends Screen {
     private final Animator openAnim = new Animator(0f, 0.22f);
     private final Animator hoverAnim = new Animator(0f, 0.3f);
 
+    // Window position, as a pixel offset from the default margin. Persisted in the theme
+    // settings so the panel reopens where the user left it, like a real client window.
+    private int panelOffsetX;
+    private int panelOffsetY;
+    private boolean draggingPanel;
+    private double dragGrabX;
+    private double dragGrabY;
+
     public ClickGui(ModuleManager modules, ConfigManager config, HudManager hud, ThemeManager theme) {
         super(Text.literal("LOGVEX CRYSTAL"));
         this.modules = modules;
         this.config = config;
         this.hud = hud;
         this.theme = theme;
+        this.panelOffsetX = theme.settings().guiX;
+        this.panelOffsetY = theme.settings().guiY;
     }
 
     /** Installs the screen, guarded so it is never shown before fonts exist. */
@@ -163,10 +173,10 @@ public final class ClickGui extends Screen {
 
         int margin = 18;
         int animOffset = (int) ((1f - open) * 14);
-        panelLeft = margin;
-        panelTop = margin + animOffset;
-        panelRight = virtualWidth - margin;
-        panelBottom = virtualHeight - margin - animOffset;
+        panelLeft = margin + panelOffsetX;
+        panelTop = margin + animOffset + panelOffsetY;
+        panelRight = virtualWidth - margin + panelOffsetX;
+        panelBottom = virtualHeight - margin - animOffset + panelOffsetY;
         if (panelBottom <= panelTop) {
             matrices.popMatrix();
             return;
@@ -250,6 +260,10 @@ public final class ClickGui extends Screen {
         String sub = appearanceTab ? "appearance" : selectedCategory.displayName().toLowerCase(Locale.ROOT);
         context.drawTextWithShadow(textRenderer, sub, panelLeft + 10 + textRenderer.getWidth("LOGVEX CRYSTAL") + 22,
                 panelTop + 9, palette.textDim());
+        // Close button, top-right of the header.
+        int closeX = panelRight - 18;
+        int closeY = panelTop + 5;
+        context.drawTextWithShadow(textRenderer, "\u2715", closeX, closeY, palette.textDim());
         RenderUtil.horizontalGradient(context, panelLeft + 4, panelTop + HEADER_HEIGHT - 2,
                 panelRight - panelLeft - 8, 2, palette.accentGradientStart(), palette.accentGradientEnd());
     }
@@ -471,7 +485,7 @@ public final class ClickGui extends Screen {
     private void drawFooter(DrawContext context, Palette palette, int x) {
         int y = panelBottom - FOOTER_HEIGHT + 5;
         context.drawTextWithShadow(textRenderer,
-                "[RMB toggle] [LMB expand] [B bind] [S save] [T theme] [Esc close]",
+                "[LMB toggle] [RMB settings] [drag header to move] [B bind] [S save] [T theme] [Esc close]",
                 x, y, palette.textDim());
         if (!status.isEmpty() && System.currentTimeMillis() - statusAt < 4000) {
             context.drawTextWithShadow(textRenderer, status, x, y - 11, palette.primary());
@@ -578,6 +592,10 @@ public final class ClickGui extends Screen {
         double mouseX = click.x() / uiScale();
         double mouseY = click.y() / uiScale();
         int button = click.button();
+        // Header: close button, then drag-to-move.
+        if (handleHeaderClick(mouseX, mouseY, button)) {
+            return true;
+        }
         if (handleSidebarClick(mouseX, mouseY)) {
             return true;
         }
@@ -589,6 +607,26 @@ public final class ClickGui extends Screen {
             return true;
         }
         return super.mouseClicked(click, doubled);
+    }
+
+    /** Handles the header bar: the close button and click-drag window moving. */
+    private boolean handleHeaderClick(double mouseX, double mouseY, int button) {
+        int headerBottom = panelTop + HEADER_HEIGHT;
+        if (mouseX < panelLeft || mouseX > panelRight || mouseY < panelTop || mouseY > headerBottom) {
+            return false;
+        }
+        if (button == 0 && inRect(mouseX, mouseY, panelRight - 20, panelTop + 2, 16, 14)) {
+            GuiSounds.close();
+            close();
+            return true;
+        }
+        if (button == 0) {
+            draggingPanel = true;
+            dragGrabX = mouseX - panelLeft;
+            dragGrabY = mouseY - panelTop;
+            return true;
+        }
+        return false;
     }
 
     private boolean handleSidebarClick(double mouseX, double mouseY) {
@@ -633,9 +671,11 @@ public final class ClickGui extends Screen {
         int y = listTop - (int) scroll;
         for (Module module : visibleModules()) {
             if (mouseY >= y && mouseY <= y + CARD_HEIGHT) {
-                if (button == 1) {
+                if (button == 0) {
+                    // Meteor convention: left click toggles the module.
                     toggleModule(module);
-                } else if (button == 0) {
+                } else if (button == 1) {
+                    // Right click expands the settings panel.
                     expanded = expanded == module ? null : module;
                     GuiSounds.click();
                 }
@@ -752,7 +792,7 @@ public final class ClickGui extends Screen {
         } else if (setting instanceof EnumSetting<?> enumeration) {
             openDropdown = openDropdown == enumeration ? null : enumeration;
         } else if (setting instanceof StringSetting string) {
-            setStatus("Use .lvx set " + module.name() + " " + string.name() + " <value>");
+            setStatus("Use ; set " + module.name() + " " + string.name() + " <value>");
         }
     }
 
@@ -865,6 +905,14 @@ public final class ClickGui extends Screen {
 
     @Override
     public boolean mouseDragged(Click click, double offsetX, double offsetY) {
+        if (draggingPanel) {
+            double mouseX = click.x() / uiScale();
+            double mouseY = click.y() / uiScale();
+            panelOffsetX = (int) Math.round(mouseX - dragGrabX) - 18;
+            panelOffsetY = (int) Math.round(mouseY - dragGrabY) - 18;
+            clampPanelOffset();
+            return true;
+        }
         if (editingColor != null) {
             int x = panelLeft + SIDEBAR_WIDTH + 10 + 6 + 60;
             int right = panelRight - 6 - 4;
@@ -874,6 +922,25 @@ public final class ClickGui extends Screen {
             return true;
         }
         return super.mouseDragged(click, offsetX, offsetY);
+    }
+
+    @Override
+    public boolean mouseReleased(Click click) {
+        if (draggingPanel) {
+            draggingPanel = false;
+            theme.settings().guiX = panelOffsetX;
+            theme.settings().guiY = panelOffsetY;
+            theme.update();
+        }
+        return super.mouseReleased(click);
+    }
+
+    /** Keeps the dragged window from being pulled entirely off-screen. */
+    private void clampPanelOffset() {
+        int maxX = Math.max(0, vw() - 120);
+        int maxY = Math.max(0, vh() - 80);
+        panelOffsetX = Math.max(-vw() + 120, Math.min(maxX, panelOffsetX));
+        panelOffsetY = Math.max(-vh() + 80, Math.min(maxY, panelOffsetY));
     }
 
     @Override

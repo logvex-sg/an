@@ -51,6 +51,10 @@ public final class ThemeSettings {
     /** Enable the hidden cosmetic easter egg. */
     public boolean easterEgg = false;
 
+    /** Saved ClickGUI window offset, in virtual pixels, so it reopens where it was left. */
+    public int guiX = 0;
+    public int guiY = 0;
+
     /** Effective primary accent. */
     public int primary() {
         return primaryOverride != null ? primaryOverride : preset.primary();
@@ -120,6 +124,8 @@ public final class ThemeSettings {
         copy.guiSounds = guiSounds;
         copy.splashText = splashText;
         copy.easterEgg = easterEgg;
+        copy.guiX = guiX;
+        copy.guiY = guiY;
         return copy;
     }
 

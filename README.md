@@ -18,8 +18,8 @@ proprietary interface or theme data is copied.
   interaction, injects nothing into other programs, and never sends anything to the server
   that the vanilla client would not.
 * Commands are handled **locally**. Anarchy servers reject unknown `/` commands, so a line
-  starting with `.lvx` (or `.crystal`) is intercepted before it is sent and never reaches
-  the server.
+  starting with `;` (the legacy `.lvx` / `.crystal` still work) is intercepted before it is
+  sent and never reaches the server.
 
 ## Building
 
@@ -64,22 +64,22 @@ rebuild, or a config file does not round-trip.
 
 ## Commands
 
-All commands are local-only. Prefix `.lvx` or `.crystal`.
+All commands are local-only. Prefix `;` or `.crystal`.
 
 | Command | Purpose |
 | --- | --- |
-| `.lvx toggle <module>` | Enable/disable a module |
-| `.lvx bind <module> <key>` | Set a module keybind |
-| `.lvx set <module> <setting> <value>` | Change any module setting |
-| `.lvx preset <name>` / `theme` / `variant <dark\|light>` | Theme selection |
-| `.lvx accent <#RRGGBB\|reset>` / `secondary ...` | Accent colours |
-| `.lvx opacity\|gradient\|glow\|scale\|animation <0..1>` | Appearance sliders |
-| `.lvx radius <0..12>` | Corner rounding |
-| `.lvx decorations\|cat\|motion\|blur\|cursor\|sounds\|splash <on\|off>` | Feature toggles |
-| `.lvx waypoint <add\|remove\|list\|clear> [name] [x y z]` | Manage waypoints |
-| `.lvx friend <add\|remove\|list> [name]` | Manage the friend list |
-| `.lvx hud <element> <on\|off>` / `hudedit` / `gui` | HUD control |
-| `.lvx save` / `load` / `list [category]` / `version` | Config & info |
+| `; toggle <module>` | Enable/disable a module |
+| `; bind <module> <key>` | Set a module keybind |
+| `; set <module> <setting> <value>` | Change any module setting |
+| `; preset <name>` / `theme` / `variant <dark\|light>` | Theme selection |
+| `; accent <#RRGGBB\|reset>` / `secondary ...` | Accent colours |
+| `; opacity\|gradient\|glow\|scale\|animation <0..1>` | Appearance sliders |
+| `; radius <0..12>` | Corner rounding |
+| `; decorations\|cat\|motion\|blur\|cursor\|sounds\|splash <on\|off>` | Feature toggles |
+| `; waypoint <add\|remove\|list\|clear> [name] [x y z]` | Manage waypoints |
+| `; friend <add\|remove\|list> [name]` | Manage the friend list |
+| `; hud <element> <on\|off>` / `hudedit` / `gui` | HUD control |
+| `; save` / `load` / `list [category]` / `version` | Config & info |
 
 ## Chest coordinate logger (local only)
 
@@ -132,7 +132,7 @@ src/main/java/com/logvex/crystal/
   config/     JSON stores
   combat/     crystal damage model and target tracking
   cosmetic/   paw-print particles and UI sounds
-  command/    the .lvx command system
+  command/    the ; command system
   social/     friend list
   scan/       local chest counting + clustering (ChestLogger)
   util/       maths, animation, waypoints

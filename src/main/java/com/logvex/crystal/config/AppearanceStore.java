@@ -102,6 +102,8 @@ public final class AppearanceStore {
         root.addProperty("guiSounds", s.guiSounds);
         root.addProperty("splashText", s.splashText);
         root.addProperty("easterEgg", s.easterEgg);
+        root.addProperty("guiX", s.guiX);
+        root.addProperty("guiY", s.guiY);
         return root;
     }
 
@@ -139,6 +141,8 @@ public final class AppearanceStore {
         s.guiSounds = optBool(root, "guiSounds", s.guiSounds);
         s.splashText = optBool(root, "splashText", s.splashText);
         s.easterEgg = optBool(root, "easterEgg", s.easterEgg);
+        s.guiX = optInt(root, "guiX", s.guiX);
+        s.guiY = optInt(root, "guiY", s.guiY);
         s.clamp();
         return s;
     }

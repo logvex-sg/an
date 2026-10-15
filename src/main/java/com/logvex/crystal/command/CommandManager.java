@@ -24,12 +24,13 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
 
 /**
- * The {@code .lvx} command system, dispatched from intercepted chat rather than a
+ * The {@code ;} command system, dispatched from intercepted chat rather than a
  * server-side Brigadier command.
  *
  * <p>Anarchy servers routinely reject unknown {@code /} commands, so the client never
- * sends anything to the server: a line starting with {@code .lvx} is intercepted locally
- * and handled here. This keeps the command surface available everywhere.
+ * sends anything to the server: a line starting with {@code ;} is intercepted locally
+ * and handled here. This keeps the command surface available everywhere. The legacy
+ * {@code .lvx} and {@code .crystal} prefixes are still accepted.
  *
  * <p>Subcommands: {@code help, toggle, bind, set, theme, preset, variant, opacity,
  * gradient, glow, radius, scale, animation, decorations, cat, reducedmotion, blur,
@@ -37,9 +38,15 @@ import net.minecraft.text.Text;
  */
 public final class CommandManager {
 
-    public static final String PREFIX = ".lvx";
-    /** The alternate prefix anarchy clients conventionally accept. */
+    /** The primary chat prefix, Meteor-style but with a semicolon. */
+    public static final String PREFIX = ";";
+    /** Legacy prefix kept so older muscle memory and scripts keep working. */
     public static final String ALT_PREFIX = ".crystal";
+    /** Second legacy prefix. */
+    public static final String LEGACY_PREFIX = ".lvx";
+
+    /** Every accepted prefix, longest first so {@code .crystal} wins over {@code .c}. */
+    private static final String[] PREFIXES = {ALT_PREFIX, LEGACY_PREFIX, PREFIX};
 
     private final CrystalClient client;
 
@@ -53,14 +60,8 @@ public final class CommandManager {
      */
     public boolean handleChat(String raw) {
         String trimmed = raw == null ? "" : raw.trim();
-        String body;
-        if (trimmed.equalsIgnoreCase(PREFIX) || trimmed.equalsIgnoreCase(ALT_PREFIX)) {
-            body = "";
-        } else if (trimmed.toLowerCase(Locale.ROOT).startsWith(PREFIX + " ")) {
-            body = trimmed.substring(PREFIX.length()).trim();
-        } else if (trimmed.toLowerCase(Locale.ROOT).startsWith(ALT_PREFIX + " ")) {
-            body = trimmed.substring(ALT_PREFIX.length()).trim();
-        } else {
+        String body = stripPrefix(trimmed);
+        if (body == null) {
             return false;
         }
         List<String> tokens = CommandTokenizer.tokenize(body);
@@ -71,6 +72,29 @@ public final class CommandManager {
             CrystalClient.LOG.warn("Command failed: {}", body, t);
         }
         return true;
+    }
+
+    /**
+     * Strips a recognised prefix from the front of a chat line, returning the command body,
+     * or null when the line is ordinary chat. Accepts {@code ;cmd}, {@code ; cmd} and the
+     * legacy {@code .lvx} / {@code .crystal} spellings. Package-private for unit testing.
+     */
+    static String stripPrefix(String line) {
+        String lower = line.toLowerCase(Locale.ROOT);
+        for (String prefix : PREFIXES) {
+            String pl = prefix.toLowerCase(Locale.ROOT);
+            if (!lower.startsWith(pl)) {
+                continue;
+            }
+            String rest = line.substring(prefix.length());
+            // A legacy multi-character prefix must be followed by a boundary, so ".crystals"
+            // is not read as the command "s".
+            if (prefix.length() > 1 && !rest.isEmpty() && !Character.isWhitespace(rest.charAt(0))) {
+                continue;
+            }
+            return rest.trim();
+        }
+        return null;
     }
 
     private void dispatch(List<String> tokens) {
@@ -113,7 +137,7 @@ public final class CommandManager {
             case "load", "reload" -> load();
             case "list", "modules" -> list(args);
             case "version", "ver" -> client.notify("LOGVEX CRYSTAL " + version(), NotificationLevel.INFO);
-            default -> client.notify("Unknown command '" + command + "'. Try .lvx help",
+            default -> client.notify("Unknown command '" + command + "'. Try ; help",
                     NotificationLevel.WARN);
         }
     }
@@ -122,7 +146,7 @@ public final class CommandManager {
 
     private void toggle(List<String> args) {
         if (args.isEmpty()) {
-            client.notify("Usage: .lvx toggle <module>", NotificationLevel.WARN);
+            client.notify("Usage: ; toggle <module>", NotificationLevel.WARN);
             return;
         }
         Module module = client.modules().byName(CommandTokenizer.join(args));
@@ -140,7 +164,7 @@ public final class CommandManager {
 
     private void bind(List<String> args) {
         if (args.size() < 2) {
-            client.notify("Usage: .lvx bind <module> <key>", NotificationLevel.WARN);
+            client.notify("Usage: ; bind <module> <key>", NotificationLevel.WARN);
             return;
         }
         Module module = client.modules().byName(args.get(0));
@@ -159,7 +183,7 @@ public final class CommandManager {
 
     private void set(List<String> args) {
         if (args.size() < 3) {
-            client.notify("Usage: .lvx set <module> <setting> <value>", NotificationLevel.WARN);
+            client.notify("Usage: ; set <module> <setting> <value>", NotificationLevel.WARN);
             return;
         }
         Module module = client.modules().byName(args.get(0));
@@ -287,7 +311,7 @@ public final class CommandManager {
 
     private void accent(List<String> args, boolean primary) {
         if (args.isEmpty()) {
-            client.notify("Usage: .lvx " + (primary ? "accent" : "secondary") + " <#RRGGBB|reset>",
+            client.notify("Usage: ; " + (primary ? "accent" : "secondary") + " <#RRGGBB|reset>",
                     NotificationLevel.WARN);
             return;
         }
@@ -309,7 +333,7 @@ public final class CommandManager {
 
     private void setFloat(List<String> args, String label, java.util.function.Consumer<Float> setter) {
         if (args.isEmpty()) {
-            client.notify("Usage: .lvx " + label + " <0..1>", NotificationLevel.WARN);
+            client.notify("Usage: ; " + label + " <0..1>", NotificationLevel.WARN);
             return;
         }
         try {
@@ -323,7 +347,7 @@ public final class CommandManager {
 
     private void setInt(List<String> args, String label, java.util.function.IntConsumer setter) {
         if (args.isEmpty()) {
-            client.notify("Usage: .lvx " + label + " <int>", NotificationLevel.WARN);
+            client.notify("Usage: ; " + label + " <int>", NotificationLevel.WARN);
             return;
         }
         try {
@@ -391,7 +415,7 @@ public final class CommandManager {
                     client.hud().setElementVisible(args.get(0), visible);
                     client.notify(args.get(0) + ": " + (visible ? "on" : "off"), NotificationLevel.SUCCESS);
                 } else {
-                    client.notify("Usage: .lvx hud <element> <on|off> | toggle | edit", NotificationLevel.WARN);
+                    client.notify("Usage: ; hud <element> <on|off> | toggle | edit", NotificationLevel.WARN);
                 }
             }
         }
@@ -408,14 +432,14 @@ public final class CommandManager {
 
     private void waypoint(List<String> args) {
         if (args.isEmpty()) {
-            client.notify("Usage: .lvx waypoint <add|remove|list|clear> [...]", NotificationLevel.WARN);
+            client.notify("Usage: ; waypoint <add|remove|list|clear> [...]", NotificationLevel.WARN);
             return;
         }
         var store = client.waypoints();
         switch (args.get(0).toLowerCase(Locale.ROOT)) {
             case "add", "set" -> {
                 if (args.size() < 2) {
-                    client.notify("Usage: .lvx waypoint add <name> [x y z]", NotificationLevel.WARN);
+                    client.notify("Usage: ; waypoint add <name> [x y z]", NotificationLevel.WARN);
                     return;
                 }
                 String name = args.get(1);
@@ -448,7 +472,7 @@ public final class CommandManager {
             }
             case "remove", "del", "delete", "rm" -> {
                 if (args.size() < 2) {
-                    client.notify("Usage: .lvx waypoint remove <name>", NotificationLevel.WARN);
+                    client.notify("Usage: ; waypoint remove <name>", NotificationLevel.WARN);
                     return;
                 }
                 if (store.remove(args.get(1))) {
@@ -473,21 +497,21 @@ public final class CommandManager {
                             + waypoint.z(), NotificationLevel.INFO);
                 }
             }
-            default -> client.notify("Usage: .lvx waypoint <add|remove|list|clear> [...]",
+            default -> client.notify("Usage: ; waypoint <add|remove|list|clear> [...]",
                     NotificationLevel.WARN);
         }
     }
 
     private void friend(List<String> args) {
         if (args.isEmpty()) {
-            client.notify("Usage: .lvx friend <add|remove|list> [name]", NotificationLevel.WARN);
+            client.notify("Usage: ; friend <add|remove|list> [name]", NotificationLevel.WARN);
             return;
         }
         var friends = client.friends();
         switch (args.get(0).toLowerCase(Locale.ROOT)) {
             case "add" -> {
                 if (args.size() < 2) {
-                    client.notify("Usage: .lvx friend add <name>", NotificationLevel.WARN);
+                    client.notify("Usage: ; friend add <name>", NotificationLevel.WARN);
                     return;
                 }
                 String name = CommandTokenizer.join(args.subList(1, args.size()));
@@ -500,7 +524,7 @@ public final class CommandManager {
             }
             case "remove", "del", "rm" -> {
                 if (args.size() < 2) {
-                    client.notify("Usage: .lvx friend remove <name>", NotificationLevel.WARN);
+                    client.notify("Usage: ; friend remove <name>", NotificationLevel.WARN);
                     return;
                 }
                 String name = CommandTokenizer.join(args.subList(1, args.size()));
@@ -513,7 +537,7 @@ public final class CommandManager {
             }
             case "list" -> client.notify(friends.size() == 0 ? "No friends added"
                     : "Friends: " + String.join(", ", friends.names()), NotificationLevel.INFO);
-            default -> client.notify("Usage: .lvx friend <add|remove|list> [name]", NotificationLevel.WARN);
+            default -> client.notify("Usage: ; friend <add|remove|list> [name]", NotificationLevel.WARN);
         }
     }
 
@@ -555,17 +579,17 @@ public final class CommandManager {
     private void help() {
         client.notify("\u2661 LOGVEX CRYSTAL commands \u2661", NotificationLevel.CUTE);
         for (String line : new String[]{
-                ".lvx toggle <module>",
-                ".lvx bind <module> <key>",
-                ".lvx set <module> <setting> <value>",
-                ".lvx preset <name> | theme | variant <dark|light>",
-                ".lvx accent <#RRGGBB|reset> | secondary ...",
-                ".lvx opacity|gradient|glow|scale|animation <0..1>",
-                ".lvx radius <0..12> | decorations|cat|motion|blur|cursor|sounds|splash <on|off>",
-                ".lvx hud <element> <on|off> | hudedit | gui",
-                ".lvx waypoint <add|remove|list|clear> [name] [x y z]",
-                ".lvx friend <add|remove|list> [name]",
-                ".lvx save | load | list [category] | version"
+                "; toggle <module>",
+                "; bind <module> <key>",
+                "; set <module> <setting> <value>",
+                "; preset <name> | theme | variant <dark|light>",
+                "; accent <#RRGGBB|reset> | secondary ...",
+                "; opacity|gradient|glow|scale|animation <0..1>",
+                "; radius <0..12> | decorations|cat|motion|blur|cursor|sounds|splash <on|off>",
+                "; hud <element> <on|off> | hudedit | gui",
+                "; waypoint <add|remove|list|clear> [name] [x y z]",
+                "; friend <add|remove|list> [name]",
+                "; save | load | list [category] | version"
         }) {
             client.notify(line, NotificationLevel.INFO);
         }

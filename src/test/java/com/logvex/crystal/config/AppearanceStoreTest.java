@@ -43,6 +43,8 @@ class AppearanceStoreTest {
         original.guiSounds = false;
         original.splashText = false;
         original.easterEgg = true;
+        original.guiX = 42;
+        original.guiY = -17;
 
         store.save(original);
         ThemeSettings loaded = store.load();
@@ -65,6 +67,8 @@ class AppearanceStoreTest {
         assertFalse(loaded.guiSounds);
         assertFalse(loaded.splashText);
         assertTrue(loaded.easterEgg);
+        assertEquals(42, loaded.guiX);
+        assertEquals(-17, loaded.guiY);
     }
 
     @Test
