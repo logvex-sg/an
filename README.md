@@ -23,22 +23,26 @@ proprietary interface or theme data is copied.
 
 ## Building
 
-Gradle itself must run on **JDK 25** (Fabric Loom 1.18.4 refuses anything older); the mod
-is compiled against a **JDK 21** toolchain that Gradle provisions automatically. If your
-`java -version` is 17 or 21, run the helper once and point `JAVA_HOME` at what it prints:
-
-```bash
-./scripts/setup-jdk.sh                 # downloads a Java 25 JDK, prints its JAVA_HOME
-export JAVA_HOME="$HOME/.local/logvex-jdk-25"
-export PATH="$JAVA_HOME/bin:$PATH"
-```
-
-Then:
+Requires only a **JDK** on your `PATH`; Gradle provisions everything else.
 
 ```bash
 ./gradlew build          # compiles, runs the unit tests, produces the jars
 ./gradlew test           # unit tests only
 ./gradlew runClient      # launch a dev client
+```
+
+Fabric Loom 1.18.4 must run the build on **Java 25**, while the mod compiles against the
+**Java 21** toolchain Minecraft 1.21.11 targets. Both are declared in the build, so even if
+your default `java` is 17 or 21, `gradle/gradle-daemon-jvm.properties` makes Gradle download
+and use a Java 25 JVM for itself, and the Foojay resolver in `settings.gradle` fetches the
+Java 21 toolchain. No manual `JAVA_HOME` juggling is needed.
+
+If your network blocks the JDK download (or you are offline), fetch a JDK 25 once with the
+helper and point Gradle at it:
+
+```bash
+./scripts/setup-jdk.sh
+export JAVA_HOME="$HOME/.local/logvex-jdk-25"
 ```
 
 Output jars land in `build/libs/`:
