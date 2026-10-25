@@ -1034,6 +1034,24 @@ public final class ClickGui extends Screen {
         pawBurst(panelLeft + SIDEBAR_WIDTH + 10 + 6, listTop + 6);
         setStatus(module.name() + (module.isEnabled() ? " enabled" : " disabled")
                 + (module.lastError() != null ? " (" + module.lastError() + ")" : ""));
+        announce(module);
+    }
+
+    /**
+     * Optional cat-themed activation message, gated behind the theme's cat-cosmetics toggle
+     * so it never appears for a user who turned the cute extras off. Deliberately silent
+     * about failures (the status line already carries them).
+     */
+    private void announce(Module module) {
+        if (module.lastError() != null || !theme.settings().catCosmetics) {
+            return;
+        }
+        var notifications = com.logvex.crystal.client.CrystalClient.get() == null
+                ? null : com.logvex.crystal.client.CrystalClient.get().notifications();
+        if (notifications == null) {
+            return;
+        }
+        notifications.cute(module.name() + (module.isEnabled() ? " \u2661 on" : " \u2661 off"));
     }
 
     private int settingsHeight(Module module) {

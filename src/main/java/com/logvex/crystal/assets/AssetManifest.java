@@ -63,6 +63,11 @@ public final class AssetManifest {
         ENTRIES.put(id, new Entry(id, gui(relative), Kind.IMAGE, width, height));
     }
 
+    /** A full-colour entity texture (not under {@code textures/gui/}). */
+    private static void texture(String id, String relative, int width, int height) {
+        ENTRIES.put(id, new Entry(id, "textures/entity/" + relative + ".png", Kind.IMAGE, width, height));
+    }
+
     private static String gui(String relative) {
         return "textures/gui/" + relative + ".png";
     }
@@ -111,6 +116,8 @@ public final class AssetManifest {
         image("hud_notification_badge", "hud/notification_badge", 16, 16);
         image("hud_fps", "hud/fps", 14, 14);
         image("hud_ping", "hud/ping", 14, 14);
+
+        texture("player_accessories", "cosmetic/player_accessories", 64, 64);
     }
 
     /** The full classpath path of an asset, e.g. {@code logvex-crystal:textures/gui/icons/combat.png}. */

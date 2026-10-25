@@ -85,6 +85,10 @@ def gen_palette_swatch():
     return c
 
 
+def gen_cosmetics():
+    out("textures/entity/cosmetic/player_accessories.png", branding.player_accessories_texture(64, 64))
+
+
 def contact_sheet():
     """A review-only sheet: every asset on a midnight background with labels."""
     cols = 8
@@ -113,6 +117,7 @@ def main():
     gen_branding()
     gen_decor()
     gen_hud()
+    gen_cosmetics()
     out("textures/gui/branding/palette_swatch.png", gen_palette_swatch())
 
     os.makedirs(DOCS, exist_ok=True)

@@ -41,7 +41,9 @@ class AssetManifestTest {
     @Test
     void everyEntryPathIsAPngUnderTheModNamespace() {
         for (AssetManifest.Entry entry : AssetManifest.all()) {
-            assertTrue(entry.path().startsWith("textures/gui/"), entry.id() + " path " + entry.path());
+            boolean underGui = entry.path().startsWith("textures/gui/");
+            boolean underEntity = entry.path().startsWith("textures/entity/");
+            assertTrue(underGui || underEntity, entry.id() + " path " + entry.path());
             assertTrue(entry.path().endsWith(".png"), entry.id() + " must be a PNG");
             assertTrue(entry.width() > 0 && entry.height() > 0, entry.id() + " needs a size");
             assertEquals(AssetManifest.NAMESPACE + ":" + entry.path(), AssetManifest.classpath(entry.id()));

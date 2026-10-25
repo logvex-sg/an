@@ -199,6 +199,7 @@ public final class CrystalClient implements ClientModInitializer {
         commands = new CommandManager(this);
 
         registerKeybind();
+        registerCosmetics();
         registerCallbacks();
 
         // Flush any pending save when the client stops normally, so a change made in the
@@ -239,6 +240,38 @@ public final class CrystalClient implements ClientModInitializer {
         bookmarkKey = new KeyBinding("key.logvex-crystal.bookmark", InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_UNKNOWN, KeyBinding.Category.MISC);
         net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.registerKeyBinding(bookmarkKey);
+    }
+
+    /**
+     * Registers the optional cosmetic player accessories: the model layer is baked with the
+     * vanilla entity models, and a feature renderer is attached to the player renderer. Both
+     * are inert until the PlayerCosmetics module is enabled, so this costs nothing when the
+     * user leaves the cosmetic off.
+     */
+    private void registerCosmetics() {
+        net.fabricmc.fabric.api.client.rendering.v1.EntityModelLayerRegistry.registerModelLayer(
+                com.logvex.crystal.cosmetic.render.CosmeticModelLayers.PLAYER_ACCESSORIES,
+                com.logvex.crystal.cosmetic.render.CatCosmeticsModel::getTexturedModelData);
+        registerPlayerFeatureRenderer();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void registerPlayerFeatureRenderer() {
+        net.fabricmc.fabric.api.client.rendering.v1.LivingEntityFeatureRendererRegistrationCallback.EVENT.register(
+                (entityType, renderer, helper, context) -> {
+                    if (entityType != net.minecraft.entity.EntityType.PLAYER) {
+                        return;
+                    }
+                    if (!(renderer instanceof net.minecraft.client.render.entity.PlayerEntityRenderer playerRenderer)) {
+                        return;
+                    }
+                    com.logvex.crystal.cosmetic.render.CatCosmeticsModel model =
+                            new com.logvex.crystal.cosmetic.render.CatCosmeticsModel(
+                                    com.logvex.crystal.cosmetic.render.CatCosmeticsModel.bakedPart(context));
+                    helper.register((net.minecraft.client.render.entity.feature.FeatureRenderer)
+                            new com.logvex.crystal.cosmetic.render.PlayerCosmeticFeatureRenderer(
+                                    playerRenderer, model));
+                });
     }
 
     private void registerCallbacks() {

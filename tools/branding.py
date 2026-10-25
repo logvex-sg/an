@@ -408,3 +408,39 @@ def fps_ping_icon(kind, size=14):
             c.stroke_circle(size * 0.3, size * 0.7, r, col, 1.6, 0.9 - i * 0.2)
         c.fill_circle(size * 0.3, size * 0.7, 1.6, col)
     return c
+
+
+def _tile(c, x, y, w, h, color, radius=0.0):
+    """Paint one flat skin-texture cell (no anti-aliasing, so UV seams stay crisp)."""
+    c.fill_rect(x, y, w, h, _rgb(color), radius)
+
+
+def player_accessories_texture(width=64, height=64):
+    """The 64x64 skin-style texture for the cosmetic player accessories.
+
+    Layout (matches CatCosmeticsModel's UVs). Each cell is sized to the full texture
+    region a cuboid consumes, which is 2*(depth+width) wide and depth+height tall, so no
+    face samples transparent texels:
+      (0,0)  ear outer 8x4     (10,0) ear inner 5x3
+      (0,6)  bow lobes 7x3     (10,6) bow knot 5x3
+      (0,12) halo seg  6x2
+    The whole sheet is first washed in cotton-candy pink so any face not otherwise painted
+    still reads as pastel. All artwork is original to LOGVEX CRYSTAL.
+    """
+    c = Canvas(width, height)
+    c.fill_rect(0, 0, width, height, _rgb(COTTON))
+    # Ear outer: pink with a slightly deeper base band.
+    _tile(c, 0, 0, 8, 4, COTTON)
+    _tile(c, 0, 2, 8, 2, PINK)
+    # Ear inner: soft lavender.
+    _tile(c, 10, 0, 5, 3, LAVENDER)
+    _tile(c, 10, 1, 5, 2, LILAC)
+    # Bow lobes: baby blue with a cyan edge.
+    _tile(c, 0, 6, 7, 3, BABYBLUE)
+    _tile(c, 0, 8, 7, 1, CYAN)
+    # Bow knot: lilac.
+    _tile(c, 10, 6, 5, 3, LILAC)
+    # Halo segment: lavender fading to cyan.
+    _tile(c, 0, 12, 6, 2, LAVENDER)
+    _tile(c, 0, 13, 6, 1, CYAN)
+    return c

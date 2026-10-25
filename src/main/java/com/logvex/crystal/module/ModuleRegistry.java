@@ -35,6 +35,7 @@ import com.logvex.crystal.module.render.SpawnerEspModule;
 import com.logvex.crystal.module.render.BedEspModule;
 import com.logvex.crystal.module.render.PortalEspModule;
 import com.logvex.crystal.module.render.BlockEspModule;
+import com.logvex.crystal.module.render.PlayerCosmeticsModule;
 import com.logvex.crystal.module.movement.AutoWalkModule;
 import com.logvex.crystal.module.movement.FastStopModule;
 import com.logvex.crystal.module.movement.SprintModule;
@@ -58,7 +59,7 @@ import com.logvex.crystal.module.render.TracersModule;
 public final class ModuleRegistry {
 
     /** Number of concrete modules registered; asserted by the registry test. */
-    public static final int EXPECTED_MODULE_COUNT = 65;
+    public static final int EXPECTED_MODULE_COUNT = 66;
 
     private ModuleRegistry() {
     }
@@ -107,6 +108,7 @@ public final class ModuleRegistry {
         manager.register(new BedEspModule());
         manager.register(new PortalEspModule());
         manager.register(new BlockEspModule());
+        manager.register(new PlayerCosmeticsModule());
         // HUD
         manager.register(new WatermarkModule());
         manager.register(new ModuleListModule());
