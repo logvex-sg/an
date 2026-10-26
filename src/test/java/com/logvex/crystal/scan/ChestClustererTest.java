@@ -57,6 +57,18 @@ class ChestClustererTest {
     }
 
     @Test
+    void verticalToleranceWiderThanLinkDistanceStillLinksFloors() {
+        // Two chests six blocks apart vertically, no horizontal gap. With a vertical
+        // tolerance of 8 they belong to one cluster. The bucketing cell must be sized from
+        // the larger of the two tolerances, or the pair lands in non-adjacent cells and is
+        // never compared, silently splitting (and then dropping) the cluster.
+        List<ChestPoint> points = List.of(p(0, 64, 0), p(0, 70, 0));
+        List<ChestCluster> clusters = ChestClusterer.cluster(points, 2, 8, 2);
+        assertEquals(1, clusters.size(), "chests within the vertical tolerance must cluster");
+        assertEquals(2, clusters.get(0).chestCount());
+    }
+
+    @Test
     void clustersBelowMinSizeAreDropped() {
         List<ChestPoint> points = List.of(p(0, 64, 0), p(1, 64, 0), p(500, 64, 500));
         List<ChestCluster> clusters = ChestClusterer.cluster(points, 2, 1, 2);

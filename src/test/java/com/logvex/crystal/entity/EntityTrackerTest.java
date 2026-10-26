@@ -94,6 +94,40 @@ class EntityTrackerTest {
     }
 
     @Test
+    void historyOfDespawnedEntitiesStaysBounded() {
+        // A busy server churns thousands of entities through the client over a session. The
+        // tracker must not retain per-entity history for entities long gone, or the maps grow
+        // without limit; the bound is exercised by feeding more distinct entities than the
+        // tracker is allowed to remember.
+        int bound = 8;
+        EntityTracker tracker = new EntityTracker(bound, 4);
+        for (int i = 0; i < 500; i++) {
+            tracker.update(List.of(info(UUID.randomUUID(), "E" + i)), i);
+        }
+        // Current snapshots plus retained history are each bounded by maxTracked, so the
+        // total can never exceed twice that no matter how many entities pass through.
+        assertTrue(tracker.rememberedEntities() <= 2 * bound,
+                "history retained for " + tracker.rememberedEntities() + " entities");
+    }
+
+    @Test
+    void historyOfARecentlySeenDespawnSurvivesEviction() {
+        // The entity browser shows a despawned entity's last snapshot, so a recently seen
+        // despawn must keep its history even while the long tail is evicted.
+        EntityTracker tracker = new EntityTracker(4, 4);
+        UUID watched = UUID.randomUUID();
+        tracker.update(List.of(info(watched, "Watched")), 1);
+        for (int i = 0; i < 200; i++) {
+            tracker.update(List.of(info(UUID.randomUUID(), "E" + i)), 2 + i);
+            // The browser reads the selected entity's history every frame, which keeps it warm.
+            tracker.history(watched);
+        }
+        assertFalse(tracker.isTracked(watched));
+        assertEquals(1, tracker.history(watched).size(),
+                "the recently inspected despawn should keep its last snapshot");
+    }
+
+    @Test
     void clearResetsEverything() {
         EntityTracker tracker = new EntityTracker();
         tracker.update(List.of(info(UUID.randomUUID(), "A")), 1);

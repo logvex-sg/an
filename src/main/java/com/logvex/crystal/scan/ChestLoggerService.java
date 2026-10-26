@@ -152,6 +152,15 @@ public final class ChestLoggerService {
         reporter.prune(nowMillis, maxAgeMillis);
     }
 
+    /**
+     * How many clusters are currently remembered for duplicate suppression. Bounded by
+     * {@link #prune}; exposed so the module and tests can prove it does not grow without limit
+     * over a long session in a base-dense world.
+     */
+    public int suppressionCount() {
+        return reporter.size();
+    }
+
     public void close() {
         if (closed.compareAndSet(false, true) && ownsWorker) {
             worker.shutdownNow();

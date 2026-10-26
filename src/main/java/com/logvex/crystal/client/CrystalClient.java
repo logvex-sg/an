@@ -157,8 +157,14 @@ public final class CrystalClient implements ClientModInitializer {
             loadingConfig = false;
         }
         theme.update();
-        // Drop tinted icon variants whenever the palette changes so accents stay correct.
-        theme.addListener(palette -> AssetRegistry.get().releaseTinted());
+        // Drop tinted icon variants whenever the palette changes so accents stay correct, and
+        // mark the config dirty so an appearance change (preset, accent, slider, toggle) is
+        // written by the autosave. Registered after the initial load above, so restoring the
+        // saved appearance does not itself trigger a rewrite on every launch.
+        theme.addListener(palette -> {
+            AssetRegistry.get().releaseTinted();
+            requestSave();
+        });
         net.fabricmc.fabric.api.resource.v1.ResourceLoader
                 .get(net.minecraft.resource.ResourceType.CLIENT_RESOURCES)
                 .registerReloader(AssetRegistry.ReloadListener.ID, new AssetRegistry.ReloadListener());

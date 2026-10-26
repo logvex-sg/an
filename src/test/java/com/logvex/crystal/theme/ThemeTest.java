@@ -112,6 +112,26 @@ class ThemeTest {
     }
 
     @Test
+    void everyAppearanceMutationNotifiesListeners() {
+        // The client persists the appearance by marking the config dirty from a theme
+        // listener, so *every* mutation path must fire it or a change made in the Appearance
+        // tab (or with a command) would silently fail to survive a restart.
+        ThemeManager manager = new ThemeManager();
+        int[] fired = {0};
+        manager.addListener(palette -> fired[0]++);
+
+        manager.applyPreset(ThemePreset.COTTON_CANDY);
+        manager.setVariant(ThemeVariant.LIGHT);
+        manager.setPrimary(0xFF112233);
+        manager.setSecondary(0xFF445566);
+        // Direct field edits followed by update() (the slider/toggle path in the ClickGUI).
+        manager.settings().backgroundOpacity = 0.5f;
+        manager.update();
+
+        assertEquals(5, fired[0], "each appearance mutation must notify listeners so it is saved");
+    }
+
+    @Test
     void applyPresetByNameAcceptsLabels() {
         ThemeManager manager = new ThemeManager();
         assertTrue(manager.applyPreset("Lavender Dream"));

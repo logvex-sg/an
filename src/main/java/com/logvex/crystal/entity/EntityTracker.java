@@ -43,7 +43,16 @@ public final class EntityTracker {
     private final int historyPerEntity;
 
     private final Map<UUID, EntityInfo> current = new LinkedHashMap<>();
-    private final Map<UUID, Deque<EntityInfo>> history = new HashMap<>();
+    // A bounded, access-ordered map so recently inspected entities survive while the
+    // long tail of everything else seen this session is evicted. Insertion order is the
+    // eviction order; a history()/lastObservedMillis() read refreshes recency.
+    private final Map<UUID, Deque<EntityInfo>> history =
+            new LinkedHashMap<>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<UUID, Deque<EntityInfo>> eldest) {
+                    return size() > maxTracked;
+                }
+            };
     private final Map<UUID, Long> lastObserved = new HashMap<>();
     private final Deque<EntityEvent> events = new ArrayDeque<>();
 
@@ -90,11 +99,16 @@ public final class EntityTracker {
             pushHistory(uuid, info);
         }
 
-        // Despawns: anything we had that is now gone.
+        // Despawns: anything we had that is now gone. The history is kept (the entity
+        // browser shows a despawned entity's last snapshot) but stays bounded by the
+        // access-ordered eviction in the history map. The last-observed stamp is only ever
+        // read for currently-tracked entities, so it is dropped here to keep its map the
+        // exact size of the live set.
         for (EntityInfo previous : current.values()) {
             if (!incoming.containsKey(previous.uuid())) {
                 despawnedTotal++;
                 record(new EntityEvent(previous, Kind.DESPAWN, now));
+                lastObserved.remove(previous.uuid());
             }
         }
 
@@ -168,6 +182,18 @@ public final class EntityTracker {
 
     public int trackedCount() {
         return current.size();
+    }
+
+    /**
+     * Distinct entities the tracker still holds any per-entity state for (current snapshots
+     * plus retained history). Bounded by {@code maxTracked}; used by tests and diagnostics to
+     * prove a long session cannot grow the maps without limit.
+     */
+    public int rememberedEntities() {
+        java.util.Set<UUID> ids = new java.util.HashSet<>(current.keySet());
+        ids.addAll(history.keySet());
+        ids.addAll(lastObserved.keySet());
+        return ids.size();
     }
 
     public int spawnedTotal() {

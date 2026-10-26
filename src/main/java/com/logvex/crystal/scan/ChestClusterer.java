@@ -39,7 +39,11 @@ public final class ChestClusterer {
         }
         int link = Math.max(0, linkDistance);
         int vertical = Math.max(0, verticalTolerance);
-        int cell = Math.max(1, link + 1);
+        // The cell must cover the larger of the two tolerances: the 27-cell neighbour scan
+        // only reaches one cell in each direction, so a cell sized from the horizontal link
+        // alone would miss two chests that are close vertically but further apart on Y than
+        // one cell (e.g. a tall stack with a generous vertical tolerance).
+        int cell = Math.max(1, Math.max(link, vertical) + 1);
 
         List<ChestPoint> unique = dedupe(points);
         int n = unique.size();

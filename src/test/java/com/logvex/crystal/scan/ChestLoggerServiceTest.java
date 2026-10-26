@@ -177,6 +177,20 @@ class ChestLoggerServiceTest {
     }
 
     @Test
+    void pruneDropsSuppressionRecordsOlderThanTheWindow() {
+        ChestLoggerService service = service();
+        service.configure(new ChestLoggerService.Config(2, 2, 1, 30, 16, 300_000L));
+        // Report many distinct bases far apart so each is remembered separately.
+        for (int i = 0; i < 20; i++) {
+            service.submit("minecraft:overworld", haul(30, i * 500), List.of(), 1_000L);
+        }
+        assertEquals(20, service.suppressionCount());
+        // A prune far beyond the cooldown must forget them all.
+        service.prune(1_000L + 10_000_000L, 300_000L);
+        assertEquals(0, service.suppressionCount());
+    }
+
+    @Test
     void configureIsReflectedInConfigAccessor() {
         ChestLoggerService service = service();
         service.configure(new ChestLoggerService.Config(3, 4, 2, 25, 8, 60_000L));

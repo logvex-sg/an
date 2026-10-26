@@ -82,6 +82,10 @@ public final class ChestLoggerModule extends Module {
         // Re-apply settings each scan so a change in the ClickGUI takes effect live.
         pushConfig();
         service.onDimensionChange(world.getRegistryKey().getValue().toString());
+        // Keep the duplicate-suppression table bounded: without this, every distinct base
+        // ever reported is remembered for the whole session. Records older than twice the
+        // cooldown can no longer suppress anything, so dropping them is safe.
+        service.prune(System.currentTimeMillis(), cooldownSeconds.value() * 2000L);
 
         long ticks = client.world.getTime();
         if (ticks - lastScanTick < scanInterval.value()) {
