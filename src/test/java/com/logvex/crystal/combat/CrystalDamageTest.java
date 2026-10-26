@@ -77,4 +77,40 @@ class CrystalDamageTest {
         assertTrue(result.negligible());
         assertEquals(0, result.remainingHealth() >= 0 ? 0 : 1, 1e-9);
     }
+
+    @Test
+    void resistanceReducesDamageByTwentyPercentPerLevel() {
+        double raw = 40.0;
+        // Amplifier 0 is Resistance I: a 20% reduction.
+        assertEquals(raw * 0.8, CrystalDamage.afterResistance(raw, 0), 1e-9);
+        assertEquals(raw * 0.6, CrystalDamage.afterResistance(raw, 1), 1e-9);
+        assertEquals(raw * 0.4, CrystalDamage.afterResistance(raw, 2), 1e-9);
+        assertEquals(raw * 0.2, CrystalDamage.afterResistance(raw, 3), 1e-9);
+        // Level V (amplifier 4) is full immunity, and it never goes negative.
+        assertEquals(0, CrystalDamage.afterResistance(raw, 4), 1e-9);
+        assertEquals(0, CrystalDamage.afterResistance(raw, 9), 1e-9);
+        assertEquals(0, CrystalDamage.afterResistance(0, 2), 1e-9);
+    }
+
+    @Test
+    void protectionReducesDamageByEpfOverTwentyFive() {
+        double raw = 40.0;
+        assertEquals(raw, CrystalDamage.afterProtection(raw, 0), 1e-9);
+        assertEquals(raw * (1 - 8 / 25.0), CrystalDamage.afterProtection(raw, 8), 1e-9);
+        // Capped at 20 points, so 25+ epf behaves like 20.
+        assertEquals(CrystalDamage.afterProtection(raw, 20), CrystalDamage.afterProtection(raw, 100), 1e-9);
+        assertEquals(raw * 0.2, CrystalDamage.afterProtection(raw, 20), 1e-9);
+        assertEquals(0, CrystalDamage.afterProtection(0, 8), 1e-9);
+    }
+
+    @Test
+    void fullEvaluationAppliesResistanceAndProtectionAfterArmour() {
+        double armorOnly = CrystalDamage.evaluate(3, 20, 8, 20, 1.0).applied();
+        double withResistance = CrystalDamage.evaluate(3, 20, 8, 20, 1.0, 0, 0).applied();
+        // Resistance I (amplifier 0) is a further 20% off the post-armour value.
+        assertEquals(armorOnly * 0.8, withResistance, 1e-9);
+        // Protection 8 is another 32% off.
+        double withBoth = CrystalDamage.evaluate(3, 20, 8, 20, 1.0, 0, 8).applied();
+        assertEquals(armorOnly * 0.8 * (1 - 8 / 25.0), withBoth, 1e-9);
+    }
 }

@@ -150,6 +150,7 @@ public final class CommandManager {
             case "list", "modules" -> list(args);
             case "errors", "diagnostics" -> errors(args);
             case "diag" -> diagnostics();
+            case "crystal", "ac" -> crystalAnalysis();
             case "assets" -> assets(args);
             case "version", "ver" -> client.notify("LOGVEX CRYSTAL " + version(), NotificationLevel.INFO);
             default -> client.notify("Unknown command '" + command + "'. Try ; help",
@@ -1171,6 +1172,34 @@ public final class CommandManager {
         diagnostics.report();
     }
 
+    private void crystalAnalysis() {
+        var module = client.modules().byName("AutoCrystal");
+        if (!(module instanceof com.logvex.crystal.module.combat.AutoCrystalModule autoCrystal)) {
+            client.notify("AutoCrystal module unavailable", NotificationLevel.WARN);
+            return;
+        }
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player == null || mc.world == null) {
+            client.notify("Crystal analysis needs a loaded world", NotificationLevel.WARN);
+            return;
+        }
+        var target = client.combat().currentTarget();
+        if (target == null) {
+            client.notify("Crystal: no target in range", NotificationLevel.INFO);
+            return;
+        }
+        var plan = autoCrystal.planPlacement(mc, target.entity());
+        if (plan.hasPlacement()) {
+            var best = plan.best();
+            client.notify(String.format("Crystal: place at %d,%d,%d  dmg %.1f  self %.1f",
+                    best.x(), best.y(), best.z(), best.targetDamage(), best.selfDamage()),
+                    NotificationLevel.SUCCESS);
+        } else {
+            client.notify("Crystal: no valid placement (" + plan.rejectedSummary() + ")",
+                    NotificationLevel.WARN);
+        }
+    }
+
     private void assets(List<String> args) {
         com.logvex.crystal.assets.AssetRegistry registry = com.logvex.crystal.assets.AssetRegistry.get();
         if (!args.isEmpty() && args.get(0).equalsIgnoreCase("list")) {
@@ -1207,7 +1236,7 @@ public final class CommandManager {
                 "; notifications <list|history|clear|sound|duration|scale|position|duplicates|level|test>",
                 "; context <on|off|list|add|remove|clear|cooldown>",
                 "; friend <add|remove|list> [name]",
-                "; save | load | list [category] | errors [clear] | assets [list|reload] | version"
+                "; crystal | save | load | list [category] | errors [clear] | assets [list|reload] | version"
         }) {
             client.notify(line, NotificationLevel.INFO);
         }
