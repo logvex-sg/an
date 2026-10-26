@@ -1,5 +1,6 @@
 package com.logvex.crystal.module.combat;
 
+import com.logvex.crystal.combat.TargetProtection;
 import com.logvex.crystal.module.Category;
 import com.logvex.crystal.module.Module;
 import com.logvex.crystal.setting.BooleanSetting;
@@ -30,7 +31,9 @@ public final class HoverTotemModule extends Module {
         }
         var pos = client.player.getEntityPos();
         var result = context().combatService().predict(pos, pos, client.player.getHealth(),
-                client.player.getArmor(), true);
+                client.player.getArmor(), true,
+                TargetProtection.resistanceAmplifier(client.player),
+                TargetProtection.armorProtectionEpf(client.player));
         predictedSelfDamage = result.applied();
         if (safeCheck.value() && result.lethal()) {
             // Warn once per tick only when a crystal is actually within range.

@@ -8,10 +8,10 @@ import org.junit.jupiter.api.Test;
 class TargetProtectionTest {
 
     @Test
-    void blastProtectionContributesFourEpfPerLevel() {
+    void blastProtectionContributesTwoEpfPerLevel() {
         assertEquals(0, TargetProtection.protectionEpf(0, 0), 1e-9);
-        assertEquals(4, TargetProtection.protectionEpf(0, 1), 1e-9);
-        assertEquals(16, TargetProtection.protectionEpf(0, 4), 1e-9);
+        assertEquals(2, TargetProtection.protectionEpf(0, 1), 1e-9);
+        assertEquals(8, TargetProtection.protectionEpf(0, 4), 1e-9);
     }
 
     @Test
@@ -21,8 +21,8 @@ class TargetProtectionTest {
 
     @Test
     void bothEnchantmentsSum() {
-        // Protection IV (4) + Blast Protection IV (16) = 20, the game's cap.
-        assertEquals(20, TargetProtection.protectionEpf(4, 4), 1e-9);
+        // Protection IV (4) + Blast Protection IV (8) = 12, below the game's cap of 20.
+        assertEquals(12, TargetProtection.protectionEpf(4, 4), 1e-9);
     }
 
     @Test
@@ -31,9 +31,9 @@ class TargetProtectionTest {
     }
 
     @Test
-    void aFullProtectionSetReducesDamageToTheCappedFraction() {
-        double epf = TargetProtection.protectionEpf(4, 4);
-        // 20/25 = 80% reduction, i.e. 20% of the post-armour damage survives.
-        assertEquals(0.2, CrystalDamage.afterProtection(1.0, epf), 1e-9);
+    void aFullBlastProtectionSetReducesDamageByEpfOverTwentyFive() {
+        double epf = TargetProtection.protectionEpf(0, 4);
+        // 8/25 = 32% reduction, so 68% of the post-armour damage survives.
+        assertEquals(0.68, CrystalDamage.afterProtection(1.0, epf), 1e-9);
     }
 }

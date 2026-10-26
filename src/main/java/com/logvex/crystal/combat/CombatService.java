@@ -92,19 +92,12 @@ public final class CombatService {
     }
 
     /**
-     * Predicts crystal damage from a blast at {@code crystalPos} to an entity at
-     * {@code entityPos} with the given stats. The distance used is the entity's own
-     * distance to the blast, which is what the vanilla explosion formula consumes.
-     */
-    public DamageResult predict(Vec3d crystalPos, Vec3d entityPos, double health, int armor, boolean lineOfSight) {
-        double distance = entityPos.distanceTo(crystalPos);
-        return CrystalDamage.evaluate(distance, armor, 2.0, health, CrystalDamage.exposureFor(lineOfSight));
-    }
-
-    /**
      * Predicts crystal damage including the target's Resistance effect and armour protection
-     * enchantments. The client can read both from synced data, so the estimate reflects what
-     * the server would actually apply rather than armour alone.
+     * enchantments. The distance used is the entity's own distance to the blast, which is what
+     * the vanilla explosion formula consumes. The client can read resistance and protection
+     * from synced data, so the estimate reflects what the server would actually apply rather
+     * than armour alone. Pass {@code -1} for {@code resistanceAmplifier} and {@code 0} for
+     * {@code protectionEpf} when unknown.
      */
     public DamageResult predict(Vec3d crystalPos, Vec3d entityPos, double health, int armor,
                                 boolean lineOfSight, int resistanceAmplifier, double protectionEpf) {

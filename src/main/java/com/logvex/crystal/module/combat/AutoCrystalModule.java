@@ -4,6 +4,7 @@ import com.logvex.crystal.combat.PlacementEvaluator;
 import com.logvex.crystal.combat.PlacementEvaluator.Candidate;
 import com.logvex.crystal.combat.PlacementEvaluator.CandidateInput;
 import com.logvex.crystal.combat.PlacementEvaluator.Plan;
+import com.logvex.crystal.combat.TargetProtection;
 import com.logvex.crystal.combat.WorldInteract;
 import com.logvex.crystal.module.Category;
 import com.logvex.crystal.module.Module;
@@ -214,14 +215,18 @@ public final class AutoCrystalModule extends Module {
     private double predictSelf(MinecraftClient client, BlockPos crystal) {
         Vec3d blast = Vec3d.ofCenter(crystal);
         return context().combatService().predict(blast, client.player.getEntityPos(),
-                client.player.getHealth(), client.player.getArmor(), true).applied();
+                client.player.getHealth(), client.player.getArmor(), true,
+                TargetProtection.resistanceAmplifier(client.player),
+                TargetProtection.armorProtectionEpf(client.player)).applied();
     }
 
     private double predictTarget(MinecraftClient client, Entity target, BlockPos crystal) {
         Vec3d blast = Vec3d.ofCenter(crystal);
         if (target instanceof PlayerEntity player) {
             return context().combatService().predict(blast, player.getEntityPos(),
-                    player.getHealth(), player.getArmor(), player.canSee(client.player)).applied();
+                    player.getHealth(), player.getArmor(), player.canSee(client.player),
+                    TargetProtection.resistanceAmplifier(player),
+                    TargetProtection.armorProtectionEpf(player)).applied();
         }
         return 0;
     }

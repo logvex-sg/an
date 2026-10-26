@@ -16,10 +16,11 @@ import net.minecraft.registry.entry.RegistryEntry;
  * the Resistance effect and the armour enchantment protection points (EPF).
  *
  * <p>Everything here is read from data the server has already synced to the client (status
- * effects and equipped stacks), so nothing hidden is inferred. The enchantment values use the
- * same per-level formula the game applies for an explosion: Blast Protection contributes
- * {@code level * 4} EPF and general Protection contributes {@code level} EPF; the damage model
- * sums them and caps the total at 20.
+ * effects and equipped stacks), so nothing hidden is inferred. The enchantment values match
+ * the vanilla 1.21.11 enchantment data for an explosion: Blast Protection's
+ * {@code damage_protection} effect is {@code base 2, per_level_above_first 2} (2 points per
+ * level) and general Protection's is {@code base 1, per_level_above_first 1} (1 point per
+ * level). The damage model sums them across the set and caps the total at 20.
  *
  * <p>The pure {@link #protectionEpf} method is separated out so the arithmetic is unit-testable
  * without a live entity.
@@ -36,13 +37,14 @@ public final class TargetProtection {
 
     /**
      * The enchantment protection points for the given levels. Blast Protection contributes
-     * 4 EPF per level (it is the relevant one for a crystal blast) and general Protection
-     * contributes 1 EPF per level. The result is not capped here; the damage model caps it.
+     * 2 EPF per level and general Protection contributes 1 EPF per level, matching the vanilla
+     * 1.21.11 enchantment data for an explosion. The result is not capped here; the damage
+     * model caps it.
      */
     public static double protectionEpf(int protectionLevel, int blastProtectionLevel) {
         double protection = Math.max(0, protectionLevel);
         double blast = Math.max(0, blastProtectionLevel);
-        return protection + blast * 4.0;
+        return protection + blast * 2.0;
     }
 
     /**
