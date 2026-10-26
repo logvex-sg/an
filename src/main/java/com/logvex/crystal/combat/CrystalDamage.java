@@ -70,11 +70,59 @@ public final class CrystalDamage {
         return raw * Math.max(0, factor);
     }
 
+    /**
+     * Applies the Resistance status effect (the 1.9+ formula): each level reduces damage by
+     * 20% of the incoming value, so level 5 (amplifier 4) is full immunity. {@code amplifier}
+     * is the effect's amplifier (0 = Resistance I). Verified against
+     * {@code LivingEntity.modifyAppliedDamage} in 1.21.11.
+     */
+    public static double afterResistance(double damage, int amplifier) {
+        if (damage <= 0) {
+            return 0;
+        }
+        int level = Math.max(0, amplifier) + 1;
+        double factor = 1.0 - 0.2 * level;
+        return damage * Math.max(0, factor);
+    }
+
+    /**
+     * Applies enchantment protection points (EPF) - for a crystal blast this is Blast
+     * Protection plus the general Protection contribution the game sums into the explosion's
+     * protection amount. Vanilla reduces damage by {@code min(20, epf) / 25}.
+     */
+    public static double afterProtection(double damage, double epf) {
+        if (damage <= 0) {
+            return 0;
+        }
+        double capped = Math.max(0, Math.min(20, epf));
+        return damage * (1.0 - capped / 25.0);
+    }
+
     /** Full evaluation against a target with the given armour, toughness and health. */
     public static DamageResult evaluate(double distance, double armor, double toughness,
                                         double health, double exposure) {
         double raw = rawDamage(distance, END_CRYSTAL_POWER, exposure);
         double reduced = afterArmor(raw, armor, toughness);
+        return new DamageResult(raw, reduced, health, reduced >= health);
+    }
+
+    /**
+     * Full evaluation including Resistance and enchantment protection, applied after armour in
+     * the same order the game uses. Estimated values only - the caller passes what it can read
+     * from the client, and any value it does not know is passed as zero.
+     *
+     * @param resistanceAmplifier the Resistance effect amplifier (0 = level I), or -1 for none
+     * @param protectionEpf       summed enchantment protection points, or 0 for none
+     */
+    public static DamageResult evaluate(double distance, double armor, double toughness,
+                                        double health, double exposure,
+                                        int resistanceAmplifier, double protectionEpf) {
+        double raw = rawDamage(distance, END_CRYSTAL_POWER, exposure);
+        double reduced = afterArmor(raw, armor, toughness);
+        if (resistanceAmplifier >= 0) {
+            reduced = afterResistance(reduced, resistanceAmplifier);
+        }
+        reduced = afterProtection(reduced, protectionEpf);
         return new DamageResult(raw, reduced, health, reduced >= health);
     }
 

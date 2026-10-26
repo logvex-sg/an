@@ -1,12 +1,19 @@
 package com.logvex.crystal.module.combat;
 
+import com.logvex.crystal.combat.PlacementEvaluator;
+import com.logvex.crystal.combat.PlacementEvaluator.Candidate;
+import com.logvex.crystal.combat.PlacementEvaluator.CandidateInput;
+import com.logvex.crystal.combat.PlacementEvaluator.Plan;
 import com.logvex.crystal.combat.WorldInteract;
 import com.logvex.crystal.module.Category;
 import com.logvex.crystal.module.Module;
 import com.logvex.crystal.player.InventoryUtil;
 import com.logvex.crystal.setting.BooleanSetting;
 import com.logvex.crystal.setting.IntSetting;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.decoration.EndCrystalEntity;
@@ -51,6 +58,8 @@ public final class AutoCrystalModule extends Module {
     private State state = State.IDLE;
     private double lastTargetDamage;
     private double lastSelfDamage;
+    /** Why the last placement attempt was rejected, or "" when the last attempt succeeded. */
+    private String lastRejection = "";
     private int ticks;
 
     public AutoCrystalModule() {
@@ -92,22 +101,21 @@ public final class AutoCrystalModule extends Module {
         WorldInteract.cancelMining(MinecraftClient.getInstance());
     }
 
-    /** Places a crystal beside the target, or obsidian first if there is no base. */
+    /** Places a crystal on the best evaluated base beside the target, or obsidian first. */
     private boolean tryPlace(MinecraftClient client, Entity target) {
-        BlockPos base = basePos(client, target);
-        if (base == null) {
+        Plan plan = planPlacement(client, target);
+        if (!plan.hasPlacement()) {
+            lastRejection = plan.rejectedSummary();
             return false;
         }
+        lastRejection = "";
+        BlockPos base = new BlockPos(plan.best().x(), plan.best().y(), plan.best().z());
         BlockPos crystalSpot = base.up();
-        double selfDamage = predictSelf(client, crystalSpot);
-        double targetDamage = predictTarget(client, target, crystalSpot);
-        lastSelfDamage = selfDamage;
-        lastTargetDamage = targetDamage;
-        if (!safe(selfDamage) || targetDamage < minTargetDamage.value()) {
-            return false;
-        }
+        lastSelfDamage = plan.best().selfDamage();
+        lastTargetDamage = plan.best().targetDamage();
         if (client.world.getBlockState(crystalSpot).isAir()) {
             if (InventoryUtil.findInHotbar(client, Items.END_CRYSTAL) < 0) {
+                lastRejection = "no crystal in hotbar";
                 return false;
             }
             WorldInteract.lookAt(client, Vec3d.ofCenter(crystalSpot));
@@ -126,22 +134,49 @@ public final class AutoCrystalModule extends Module {
         return false;
     }
 
-    /** Finds a base position (an existing solid block) to place a crystal on. */
-    private BlockPos basePos(MinecraftClient client, Entity target) {
-        BlockPos targetPos = target.getBlockPos();
-        BlockPos floor = targetPos.down();
-        if (!client.world.getBlockState(floor).isReplaceable() && inPlaceRange(client, floor)) {
-            return floor;
+    /**
+     * Evaluates every base beside the target and returns the best accepted placement, with
+     * the rejection reasons when none is usable. This is the shared {@link PlacementEvaluator}
+     * the debug HUD reads, so the reasons shown always match what the module actually did.
+     */
+    public Plan planPlacement(MinecraftClient client, Entity target) {
+        List<CandidateInput> inputs = new ArrayList<>();
+        for (BlockPos base : baseCandidates(client, target)) {
+            BlockPos crystalSpot = base.up();
+            double selfDamage = predictSelf(client, crystalSpot);
+            double targetDamage = predictTarget(client, target, crystalSpot);
+            Candidate candidate = new Candidate(base.getX(), base.getY(), base.getZ(), targetDamage, selfDamage);
+            boolean spotFree = client.world.getBlockState(crystalSpot).isAir();
+            boolean baseSolid = !client.world.getBlockState(base).isReplaceable();
+            boolean inRange = inPlaceRange(client, base);
+            inputs.add(new CandidateInput(candidate, spotFree, baseSolid, inRange));
         }
-        for (BlockPos candidate : List.of(targetPos, targetPos.north(), targetPos.south(),
-                targetPos.east(), targetPos.west())) {
-            BlockPos below = candidate.down();
-            if (!client.world.getBlockState(below).isReplaceable() && inPlaceRange(client, below)
-                    && client.world.getBlockState(candidate).isReplaceable()) {
-                return below;
+        return PlacementEvaluator.plan(inputs, target != null, minTargetDamage.value(),
+                client.player == null ? 0 : client.player.getHealth(), selfDamageLimit.value(),
+                antiSuicide.value());
+    }
+
+    /** Candidate base positions: solid blocks under the target and its four neighbours. */
+    private List<BlockPos> baseCandidates(MinecraftClient client, Entity target) {
+        BlockPos targetPos = target.getBlockPos();
+        List<BlockPos> bases = new ArrayList<>();
+        Map<Long, BlockPos> seen = new HashMap<>();
+        List<BlockPos> spots = List.of(targetPos, targetPos.north(), targetPos.south(),
+                targetPos.east(), targetPos.west());
+        for (BlockPos spot : spots) {
+            BlockPos base = spot.down();
+            if (client.world.getBlockState(base).isReplaceable()) {
+                continue;
+            }
+            if (!client.world.getBlockState(spot).isAir()
+                    && !client.world.getBlockState(spot).isReplaceable()) {
+                continue;
+            }
+            if (seen.putIfAbsent(base.asLong(), base) == null) {
+                bases.add(base);
             }
         }
-        return null;
+        return bases;
     }
 
     /** Attacks the closest crystal near the target, if the blast is safe and worth it. */
@@ -220,5 +255,10 @@ public final class AutoCrystalModule extends Module {
     /** Damage the last considered blast would deal to the local player. */
     public double lastSelfDamage() {
         return lastSelfDamage;
+    }
+
+    /** Why the last placement was rejected (empty when it succeeded); for the debug HUD. */
+    public String lastRejection() {
+        return lastRejection;
     }
 }

@@ -3,6 +3,7 @@ package com.logvex.crystal.module.render;
 import com.logvex.crystal.client.CrystalClient;
 import com.logvex.crystal.combat.CrystalDamage;
 import com.logvex.crystal.combat.DamageResult;
+import com.logvex.crystal.combat.TargetProtection;
 import com.logvex.crystal.module.Category;
 import com.logvex.crystal.render.esp.WorldEspCollector;
 import com.logvex.crystal.setting.BooleanSetting;
@@ -63,7 +64,9 @@ public final class CrystalEspModule extends WorldEspModule {
             if (selfDamage.value()) {
                 DamageResult self = CrystalDamage.evaluate(
                         client.player.getEntityPos().distanceTo(pos), client.player.getArmor(), 2.0,
-                        client.player.getHealth(), CrystalDamage.exposureFor(client.player.canSee(crystal)));
+                        client.player.getHealth(), CrystalDamage.exposureFor(client.player.canSee(crystal)),
+                        TargetProtection.resistanceAmplifier(client.player),
+                        TargetProtection.armorProtectionEpf(client.player));
                 out.addLabel(pos.x, box.maxY + 0.4, pos.z, String.format("\u2665%.1f", self.applied()), selfColor);
             }
             if (targetDamage.value() && bootstrap != null) {
@@ -71,7 +74,9 @@ public final class CrystalEspModule extends WorldEspModule {
                 if (target != null) {
                     DamageResult toTarget = CrystalDamage.evaluate(
                             target.entity().getEntityPos().distanceTo(pos), target.armor(), 2.0,
-                            target.health(), CrystalDamage.exposureFor(target.hasLineOfSight()));
+                            target.health(), CrystalDamage.exposureFor(target.hasLineOfSight()),
+                            TargetProtection.resistanceAmplifier(target.entity()),
+                            TargetProtection.armorProtectionEpf(target.entity()));
                     out.addLabel(pos.x, box.minY - 0.4, pos.z, String.format("\u2726%.1f", toTarget.applied()), crystalColor);
                 }
             }

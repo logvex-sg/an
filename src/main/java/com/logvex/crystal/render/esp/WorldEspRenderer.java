@@ -1,5 +1,6 @@
 package com.logvex.crystal.render.esp;
 
+import com.logvex.crystal.render.Frustum;
 import com.logvex.crystal.render.ScreenProjector;
 import com.logvex.crystal.render.ViewProjection;
 import java.util.List;
@@ -56,6 +57,12 @@ public final class WorldEspRenderer {
         Vec3d cam = camera.getCameraPos();
         List<WorldEspCollector.Box> boxes = buffer.boxes();
         int limit = Math.min(boxes.size(), MAX_BOXES_PER_FRAME);
+        // Reject boxes the camera cannot see before spending any vertex work on them. The
+        // frustum is rebuilt each frame from the camera pose, so it tracks movement and FOV.
+        Frustum frustum = Frustum.fromMatrix(ViewProjection.build(
+                cam.x, cam.y, cam.z, camera.getYaw(), camera.getPitch(),
+                fovOf(client), client.getWindow().getFramebufferWidth(),
+                client.getWindow().getFramebufferHeight(), 0.05f, 512f));
         matrices.push();
         try {
             matrices.translate(-cam.x, -cam.y, -cam.z);
@@ -63,13 +70,25 @@ public final class WorldEspRenderer {
             Matrix4f matrix = entry.getPositionMatrix();
             for (int i = 0; i < limit; i++) {
                 WorldEspCollector.Box box = boxes.get(i);
+                if (!frustum.intersectsBox(box.minX(), box.minY(), box.minZ(),
+                        box.maxX(), box.maxY(), box.maxZ())) {
+                    continue;
+                }
                 VertexConsumer line = consumers.getBuffer(RenderLayers.lines());
                 addBoxLines(line, matrix, box);
             }
-            drawLabels(client, consumers, matrices, buffer.labels(), camera);
+            drawLabels(client, consumers, matrices, buffer.labels(), camera, frustum);
         } finally {
             matrices.pop();
         }
+    }
+
+    /** The client's vertical FOV in degrees, or a sane default before options exist. */
+    private static float fovOf(MinecraftClient client) {
+        if (client.options != null) {
+            return client.options.getFov().getValue().floatValue();
+        }
+        return 70f;
     }
 
     private static void addBoxLines(VertexConsumer vc, Matrix4f matrix, WorldEspCollector.Box b) {
@@ -105,13 +124,16 @@ public final class WorldEspRenderer {
     }
 
     private static void drawLabels(MinecraftClient client, VertexConsumerProvider consumers, MatrixStack matrices,
-                                   List<WorldEspCollector.Label> labels, Camera camera) {
+                                   List<WorldEspCollector.Label> labels, Camera camera, Frustum frustum) {
         if (labels.isEmpty()) {
             return;
         }
         TextRenderer renderer = client.textRenderer;
         float scale = 0.025f;
         for (WorldEspCollector.Label label : labels) {
+            if (!frustum.containsPoint(label.x(), label.y(), label.z())) {
+                continue;
+            }
             matrices.push();
             try {
                 matrices.translate(label.x(), label.y(), label.z());
@@ -141,10 +163,7 @@ public final class WorldEspRenderer {
     /** Projects a point through the current frame's view-projection for the screen-space ESP. */
     public static ScreenProjector.Projected project(MinecraftClient client, Camera camera, double x, double y, double z) {
         Vec3d cam = camera.getCameraPos();
-        float fov = 70f;
-        if (client.options != null) {
-            fov = client.options.getFov().getValue().floatValue();
-        }
+        float fov = fovOf(client);
         int width = client.getWindow().getFramebufferWidth();
         int height = client.getWindow().getFramebufferHeight();
         float[] mvp = ViewProjection.build(cam.x, cam.y, cam.z, camera.getYaw(), camera.getPitch(),

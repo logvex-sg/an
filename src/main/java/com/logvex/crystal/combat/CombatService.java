@@ -78,9 +78,13 @@ public final class CombatService {
         }
         Vec3d crystalPos = currentTarget.entity().getEntityPos();
         DamageResult toTarget = predict(crystalPos, currentTarget.entity().getEntityPos(),
-                currentTarget.health(), currentTarget.armor(), currentTarget.hasLineOfSight());
+                currentTarget.health(), currentTarget.armor(), currentTarget.hasLineOfSight(),
+                TargetProtection.resistanceAmplifier(currentTarget.entity()),
+                TargetProtection.armorProtectionEpf(currentTarget.entity()));
         DamageResult toSelf = predict(crystalPos, client.player.getEntityPos(),
-                client.player.getHealth(), client.player.getArmor(), client.player.canSee(currentTarget.entity()));
+                client.player.getHealth(), client.player.getArmor(), client.player.canSee(currentTarget.entity()),
+                TargetProtection.resistanceAmplifier(client.player),
+                TargetProtection.armorProtectionEpf(client.player));
         crystalDamageToTarget = toTarget.applied();
         crystalDamageToSelf = toSelf.applied();
         targetLethal = toTarget.lethal();
@@ -95,6 +99,18 @@ public final class CombatService {
     public DamageResult predict(Vec3d crystalPos, Vec3d entityPos, double health, int armor, boolean lineOfSight) {
         double distance = entityPos.distanceTo(crystalPos);
         return CrystalDamage.evaluate(distance, armor, 2.0, health, CrystalDamage.exposureFor(lineOfSight));
+    }
+
+    /**
+     * Predicts crystal damage including the target's Resistance effect and armour protection
+     * enchantments. The client can read both from synced data, so the estimate reflects what
+     * the server would actually apply rather than armour alone.
+     */
+    public DamageResult predict(Vec3d crystalPos, Vec3d entityPos, double health, int armor,
+                                boolean lineOfSight, int resistanceAmplifier, double protectionEpf) {
+        double distance = entityPos.distanceTo(crystalPos);
+        return CrystalDamage.evaluate(distance, armor, 2.0, health, CrystalDamage.exposureFor(lineOfSight),
+                resistanceAmplifier, protectionEpf);
     }
 
     /** Damage the current crystal placement would deal to the target. */
