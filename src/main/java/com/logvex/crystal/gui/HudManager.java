@@ -91,6 +91,10 @@ public final class HudManager {
         register(new com.logvex.crystal.gui.hud.EntityCountHudElement());
         register(new com.logvex.crystal.gui.hud.WorldInfoHudElement());
         register(new KeystrokesHudElement());
+        register(new com.logvex.crystal.gui.hud.BaritoneHudElement());
+        // The Baritone readout is opt-in: the Baritone module reveals it, so it starts hidden
+        // rather than occupying HUD space for players who do not use Baritone.
+        layout.entry(com.logvex.crystal.gui.hud.BaritoneHudElement.ID).visible = false;
     }
 
     private static String pingText(int ping) {

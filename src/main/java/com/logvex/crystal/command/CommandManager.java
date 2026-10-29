@@ -131,6 +131,7 @@ public final class CommandManager {
             case "hud" -> hud(args);
             case "hudedit" -> hudEdit();
             case "waypoint", "wp" -> waypoint(args);
+            case "baritone", "bari", "path" -> baritone(args);
             case "world", "worldinfo" -> world();
             case "entities", "entity" -> entities(args);
             case "browser", "entitybrowser" -> openEntityBrowser();
@@ -538,6 +539,152 @@ public final class CommandManager {
 
     private static String storePath() {
         return com.logvex.crystal.config.ConfigPaths.waypoints().toString();
+    }
+
+    /**
+     * The {@code ; baritone} command. Every path here routes through the shared
+     * {@link com.logvex.crystal.integration.baritone.BaritoneService}; the command never touches
+     * Baritone directly. When Baritone is not installed each subcommand reports the reason
+     * instead of failing.
+     */
+    private void baritone(List<String> args) {
+        var service = client.baritone();
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("status")) {
+            reportBaritoneStatus(service);
+            return;
+        }
+        if (args.get(0).equalsIgnoreCase("gui") || args.get(0).equalsIgnoreCase("screen")) {
+            if (ScreenGuard.fontsReady()) {
+                MinecraftClient.getInstance().setScreen(new com.logvex.crystal.gui.BaritoneScreen(
+                        client.theme(), service));
+            }
+            return;
+        }
+        switch (args.get(0).toLowerCase(Locale.ROOT)) {
+            case "goto" -> {
+                Integer[] xyz = parseCoords(args, 1);
+                if (xyz == null) {
+                    return;
+                }
+                String error = service.goTo(com.logvex.crystal.integration.baritone.BaritoneGoal.block(
+                        xyz[0], xyz[1], xyz[2]));
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "near" -> {
+                Integer[] xyz = parseCoords(args, 1);
+                if (xyz == null) {
+                    return;
+                }
+                int range = 1;
+                if (args.size() >= 5) {
+                    try {
+                        range = Math.max(1, (int) Double.parseDouble(args.get(4)));
+                    } catch (NumberFormatException e) {
+                        client.notify("Range must be a number", NotificationLevel.ERROR);
+                        return;
+                    }
+                }
+                String error = service.followNear(xyz[0], xyz[1], xyz[2], range);
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "wp", "waypoint" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; baritone wp <name>", NotificationLevel.WARN);
+                    return;
+                }
+                var waypoint = client.waypoints().byName(args.get(1));
+                if (waypoint == null) {
+                    client.notify("No waypoint named '" + args.get(1) + "'", NotificationLevel.ERROR);
+                    return;
+                }
+                String dimension = com.logvex.crystal.world.WorldInfo.dimensionId(MinecraftClient.getInstance());
+                if (!com.logvex.crystal.integration.baritone.BaritoneWaypointBridge.reachable(waypoint, dimension)) {
+                    client.notify(com.logvex.crystal.integration.baritone.BaritoneWaypointBridge
+                            .rejectionReason(waypoint), NotificationLevel.WARN);
+                    return;
+                }
+                String error = service.goTo(com.logvex.crystal.integration.baritone.BaritoneWaypointBridge
+                        .goalFor(waypoint, dimension));
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "here" -> {
+                String error = service.goToCurrentPosition(MinecraftClient.getInstance());
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "cancel", "stop" -> service.cancel();
+            case "pause" -> service.pause();
+            case "set" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; baritone set <setting> <value>", NotificationLevel.WARN);
+                    return;
+                }
+                String value = CommandTokenizer.join(args.subList(2, args.size()));
+                String error = service.setSetting(args.get(1), value);
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                } else {
+                    client.notify("Baritone " + args.get(1) + " = " + value, NotificationLevel.SUCCESS);
+                }
+            }
+            case "settings", "list" -> {
+                var names = service.settingNames();
+                if (names.isEmpty()) {
+                    client.notify(service.available() ? "No settings exposed" : service.unavailableReason(),
+                            NotificationLevel.INFO);
+                    return;
+                }
+                client.notify(names.size() + " Baritone settings (first 12 shown)", NotificationLevel.INFO);
+                for (int i = 0; i < Math.min(12, names.size()); i++) {
+                    client.notify("  " + names.get(i), NotificationLevel.INFO);
+                }
+            }
+            default -> client.notify("Usage: ; baritone <status|gui|goto|near|wp|here|cancel|pause|set|settings>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    private void reportBaritoneStatus(com.logvex.crystal.integration.baritone.BaritoneService service) {
+        var status = service.status();
+        if (!service.probed()) {
+            client.notify("Baritone: probing\u2026", NotificationLevel.INFO);
+            return;
+        }
+        if (!status.available()) {
+            client.notify("Baritone unavailable: " + status.reason(), NotificationLevel.WARN);
+            return;
+        }
+        client.notify("Baritone " + status.version() + " \u2014 " + status.statusText(),
+                NotificationLevel.INFO);
+        if (status.hasGoalPosition()) {
+            client.notify("Goal at " + status.goalX() + " " + status.goalY() + " " + status.goalZ()
+                    + (status.pathLength() > 0 ? " \u00B7 path " + status.pathLength() + " nodes" : ""),
+                    NotificationLevel.INFO);
+        }
+    }
+
+    /** Parses three coordinates at {@code start}, or reports the error and returns null. */
+    private Integer[] parseCoords(List<String> args, int start) {
+        if (args.size() < start + 3) {
+            client.notify("Usage: coordinates <x> <y> <z>", NotificationLevel.WARN);
+            return null;
+        }
+        try {
+            return new Integer[]{
+                    (int) Double.parseDouble(args.get(start)),
+                    (int) Double.parseDouble(args.get(start + 1)),
+                    (int) Double.parseDouble(args.get(start + 2))};
+        } catch (NumberFormatException e) {
+            client.notify("Coordinates must be numbers", NotificationLevel.ERROR);
+            return null;
+        }
     }
 
     /** Prints the world-information panel's lines to chat. */
@@ -1232,6 +1379,7 @@ public final class CommandManager {
                 "; profile <list|save|load|delete|starters|gui> [name]",
                 "; favorite <module>",
                 "; waypoint <add|remove|list|clear> [name] [x y z]",
+                "; baritone <status|gui|goto <x y z>|near <x y z> [r]|wp <name>|here|cancel|pause|set|settings>",
                 "; world | entities <list|count|search <text>> | browser",
                 "; notifications <list|history|clear|sound|duration|scale|position|duplicates|level|test>",
                 "; context <on|off|list|add|remove|clear|cooldown>",

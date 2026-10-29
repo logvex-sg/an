@@ -91,6 +91,9 @@ public final class CrystalClient implements ClientModInitializer {
     /** Entity lifecycle: spawn/despawn diffing and bounded per-entity history. */
     private final com.logvex.crystal.entity.EntityTracker entityTracker =
             new com.logvex.crystal.entity.EntityTracker();
+    /** Optional Baritone integration: the only place the client talks to Baritone. */
+    private final com.logvex.crystal.integration.baritone.BaritoneService baritone =
+            new com.logvex.crystal.integration.baritone.BaritoneService();
 
     private boolean wasInWorld;
     private String lastDimension = "";
@@ -346,6 +349,7 @@ public final class CrystalClient implements ClientModInitializer {
             com.logvex.crystal.entity.EntityQuery.get().tick(client);
             entityTracker.update(com.logvex.crystal.entity.EntityQuery.get().all(), System.currentTimeMillis());
             com.logvex.crystal.world.SessionStats.get().tick(client);
+            baritone.tick(client);
             modules.tickAll();
             notifications.prune();
             cosmetics.tick(client);
@@ -916,6 +920,11 @@ public final class CrystalClient implements ClientModInitializer {
     /** The persisted waypoint list. */
     public com.logvex.crystal.util.waypoint.WaypointStore waypoints() {
         return waypoints;
+    }
+
+    /** The shared Baritone integration service (always present; availability is probed lazily). */
+    public com.logvex.crystal.integration.baritone.BaritoneService baritone() {
+        return baritone;
     }
 
     /** Favourite/recent module tracking for the ClickGUI. */
