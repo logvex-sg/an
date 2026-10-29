@@ -151,6 +151,7 @@ public final class CommandManager {
             case "list", "modules" -> list(args);
             case "errors", "diagnostics" -> errors(args);
             case "conflicts", "coord" -> conflicts(args);
+            case "automation", "auto" -> automation(args);
             case "diag" -> diagnostics();
             case "crystal", "ac" -> crystalAnalysis();
             case "assets" -> assets(args);
@@ -1328,6 +1329,121 @@ public final class CommandManager {
             client.notify("  " + issue.describe(), issue.severity()
                     == com.logvex.crystal.coordination.ConflictReport.Severity.BLOCKING
                     ? NotificationLevel.ERROR : NotificationLevel.INFO);
+        }
+    }
+
+    /**
+     * The automation surface: {@code list}, {@code on}, {@code off}, {@code history},
+     * {@code add <name> <trigger> [cond...] -> [action...]}, {@code enable/disable <id>},
+     * {@code remove <id>}. Rules are plain data and every effect goes through the narrow
+     * automation context, so nothing here can run arbitrary code.
+     */
+    private void automation(List<String> args) {
+        var engine = client.automation();
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("status")) {
+            client.notify(engine.summary(), engine.isEnabled()
+                    ? NotificationLevel.SUCCESS : NotificationLevel.INFO);
+            return;
+        }
+        String sub = args.get(0).toLowerCase(java.util.Locale.ROOT);
+        switch (sub) {
+            case "on", "enable" -> {
+                engine.setEnabled(true);
+                client.saveAutomation();
+                client.notify("Automation enabled", NotificationLevel.SUCCESS);
+            }
+            case "off", "disable" -> {
+                engine.setEnabled(false);
+                client.saveAutomation();
+                client.notify("Automation disabled", NotificationLevel.INFO);
+            }
+            case "list", "rules" -> {
+                if (engine.rules().isEmpty()) {
+                    client.notify("No automation rules", NotificationLevel.INFO);
+                    return;
+                }
+                for (var rule : engine.rules()) {
+                    client.notify("  " + rule.id() + " " + rule.describe(), NotificationLevel.INFO);
+                }
+            }
+            case "history" -> {
+                if (engine.history().isEmpty()) {
+                    client.notify("No automation history", NotificationLevel.INFO);
+                    return;
+                }
+                for (var firing : engine.history()) {
+                    client.notify("  " + firing.describe(), NotificationLevel.INFO);
+                }
+            }
+            case "remove", "delete" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; automation remove <id>", NotificationLevel.WARN);
+                    return;
+                }
+                boolean removed = engine.removeRule(args.get(1));
+                client.saveAutomation();
+                client.notify(removed ? "Rule removed" : "No such rule",
+                        removed ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+            }
+            case "toggle" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; automation toggle <id>", NotificationLevel.WARN);
+                    return;
+                }
+                var rule = engine.byId(args.get(1));
+                if (rule.isEmpty()) {
+                    client.notify("No such rule", NotificationLevel.WARN);
+                    return;
+                }
+                rule.get().enabled(!rule.get().enabled());
+                client.saveAutomation();
+                client.notify("Rule " + args.get(1) + (rule.get().enabled() ? " enabled" : " disabled"),
+                        NotificationLevel.SUCCESS);
+            }
+            case "add" -> addAutomation(args);
+            default -> client.notify("Usage: ; automation <status|on|off|list|history|"
+                    + "add|remove|toggle>", NotificationLevel.WARN);
+        }
+    }
+
+    /**
+     * {@code ; automation add <name> <trigger> [cond]... -- [action]...}
+     *
+     * <p>The trigger is a single token ({@code interval:5s}, {@code lowhealth:40},
+     * {@code event:TARGET_CHANGED}). Conditions come before {@code --}, actions after. The
+     * tokenizer already stripped quotes, so a multi-word notify message must be joined by hand.
+     */
+    private void addAutomation(List<String> args) {
+        if (args.size() < 3) {
+            client.notify("Usage: ; automation add <name> <trigger> [cond]... -- [action]...",
+                    NotificationLevel.WARN);
+            return;
+        }
+        String name = args.get(1);
+        try {
+            var rule = new com.logvex.crystal.automation.AutomationRule(
+                    "rule-" + System.currentTimeMillis(), name);
+            rule.trigger(com.logvex.crystal.automation.Trigger.parse(args.get(2)));
+            int separator = args.indexOf("--");
+            List<String> conditionTokens = separator < 0
+                    ? args.subList(3, args.size()) : args.subList(3, separator);
+            List<String> actionTokens = separator < 0
+                    ? List.of() : args.subList(separator + 1, args.size());
+            for (String token : conditionTokens) {
+                rule.addCondition(com.logvex.crystal.automation.Condition.parse(token));
+            }
+            for (String token : actionTokens) {
+                rule.addAction(com.logvex.crystal.automation.Action.parse(token));
+            }
+            if (rule.actions().isEmpty()) {
+                client.notify("A rule needs at least one action after '--'", NotificationLevel.WARN);
+                return;
+            }
+            client.automation().addRule(rule);
+            client.saveAutomation();
+            client.notify("Added rule " + rule.id() + ": " + rule.describe(), NotificationLevel.SUCCESS);
+        } catch (RuntimeException e) {
+            client.notify("Could not parse rule: " + e.getMessage(), NotificationLevel.ERROR);
         }
     }
 

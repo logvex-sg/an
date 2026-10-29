@@ -45,6 +45,11 @@ public final class ConfigPaths {
         return directory().resolve("context.json");
     }
 
+    /** Persisted automation rules. */
+    public static Path automation() {
+        return directory().resolve("automation.json");
+    }
+
     /** Directory holding named configuration profiles. */
     public static Path profiles() {
         return directory().resolve("profiles");

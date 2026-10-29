@@ -99,6 +99,15 @@ public final class CrystalClient implements ClientModInitializer {
             new com.logvex.crystal.coordination.ActionCoordinator();
     /** The live dependency context and the read-only coordination inspector. */
     private com.logvex.crystal.coordination.ModuleCoordinationService coordination;
+    /** The shared event stream over observable client state changes. */
+    private final com.logvex.crystal.event.ClientEventBus events =
+            new com.logvex.crystal.event.ClientEventBus(400L);
+    private com.logvex.crystal.event.ClientEventFeed eventFeed;
+    /** The deterministic automation rule engine and its persistent store. */
+    private final com.logvex.crystal.automation.AutomationEngine automation =
+            new com.logvex.crystal.automation.AutomationEngine(events);
+    private com.logvex.crystal.automation.AutomationStore automationStore;
+    private com.logvex.crystal.automation.ClientAutomationContext automationContext;
 
     private boolean wasInWorld;
     private String lastDimension = "";
@@ -221,6 +230,28 @@ public final class CrystalClient implements ClientModInitializer {
         contextStore.loadInto(contextProfiles);
 
         commands = new CommandManager(this);
+
+        // The event feed diffs the state other services already computed; it does no scanning
+        // of its own. Created here so it can see the tracker, combat and baritone services.
+        eventFeed = new com.logvex.crystal.event.ClientEventFeed(events, modules, entityTracker,
+                combat, baritone);
+
+        // The automation engine loads its persisted rules and acts only through the narrow
+        // ClientAutomationContext. It is created disabled; the user turns it on explicitly.
+        automationStore = new com.logvex.crystal.automation.AutomationStore(ConfigPaths.automation());
+        var automationLoad = automationStore.load();
+        for (var rule : automationLoad.rules()) {
+            automation.addRule(rule);
+        }
+        if (automationLoad.refusedNewerSchema()) {
+            notifications.warn("automation.json uses a newer schema; rules not loaded");
+        } else if (automationLoad.skipped() > 0) {
+            notifications.warn("Skipped " + automationLoad.skipped() + " malformed automation rule(s)");
+        }
+        automationContext = new com.logvex.crystal.automation.ClientAutomationContext(modules,
+                combat, baritone, profileService, contextProfiles, notifications, errors(),
+                actionCoordinator);
+        automation.setEnabled(automationLoad.enabled());
 
         registerKeybind();
         registerCosmetics();
@@ -367,6 +398,8 @@ public final class CrystalClient implements ClientModInitializer {
             baritone.tick(client);
             modules.tickAll();
             actionCoordinator.tick(System.currentTimeMillis());
+            eventFeed.tick(client);
+            automation.tick(automationContext, System.currentTimeMillis());
             notifications.prune();
             cosmetics.tick(client);
             while (clickGuiKey.wasPressed()) {
@@ -951,6 +984,28 @@ public final class CrystalClient implements ClientModInitializer {
     /** The read-only module-coordination inspector (dependencies, conflicts, action contention). */
     public com.logvex.crystal.coordination.ModuleCoordinationService coordination() {
         return coordination;
+    }
+
+    /** The shared event stream over observable client state changes. */
+    public com.logvex.crystal.event.ClientEventBus events() {
+        return events;
+    }
+
+    /** The automation rule engine. */
+    public com.logvex.crystal.automation.AutomationEngine automation() {
+        return automation;
+    }
+
+    /** Persists the automation rules and enabled flag. */
+    public void saveAutomation() {
+        if (automationStore == null) {
+            return;
+        }
+        try {
+            automationStore.save(automation.rules(), automation.isEnabled());
+        } catch (java.io.IOException e) {
+            LOG.error("Could not save automation rules", e);
+        }
     }
 
     /** Favourite/recent module tracking for the ClickGUI. */
