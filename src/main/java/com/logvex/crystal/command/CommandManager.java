@@ -49,10 +49,46 @@ public final class CommandManager {
     private static final String[] PREFIXES = {ALT_PREFIX, LEGACY_PREFIX, PREFIX};
 
     private final CrystalClient client;
+    /** Commands registered at runtime by extensions, keyed by lower-case name. */
+    private final java.util.Map<String, java.util.function.Predicate<java.util.List<String>>>
+            dynamicCommands = new java.util.concurrent.ConcurrentHashMap<>();
 
     public CommandManager(CrystalClient client) {
         this.client = client;
     }
+
+    /**
+     * Registers a runtime command (used by extensions). Returns a runnable that unregisters it.
+     * A name already handled by the built-in dispatch is rejected so an extension cannot shadow
+     * core commands.
+     */
+    public Runnable registerDynamic(String name, java.util.function.Predicate<java.util.List<String>> handler) {
+        String key = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        if (key.isEmpty() || isBuiltIn(key)) {
+            throw new IllegalArgumentException("Command name unavailable: " + name);
+        }
+        dynamicCommands.put(key, handler);
+        return () -> dynamicCommands.remove(key, handler);
+    }
+
+    /** True when the given name is a built-in command (checked against the dispatch switch). */
+    private static boolean isBuiltIn(String command) {
+        return BUILT_IN_COMMANDS.contains(command);
+    }
+
+    /** The set of built-in command names, kept in sync with {@link #dispatch}. */
+    private static final java.util.Set<String> BUILT_IN_COMMANDS = java.util.Set.of(
+            "help", "?", "toggle", "t", "bind", "b", "set", "theme", "preset", "variant",
+            "accent", "primary", "secondary", "opacity", "gradient", "glow", "radius", "scale",
+            "animation", "anim", "decorations", "cat", "catcosmetics", "reducedmotion", "motion",
+            "blur", "cursor", "sounds", "splash", "easteregg", "secret", "hud", "hudedit",
+            "waypoint", "wp", "baritone", "bari", "path", "world", "worldinfo", "entities",
+            "entity", "browser", "entitybrowser", "notifications", "notifs", "context", "ctx",
+            "friend", "friends", "gui", "clickgui", "category", "cat-tab", "favorites", "favs",
+            "fav", "recent", "appearance", "appear", "keybinds", "keys", "profile", "profiles",
+            "favorite", "favourite", "save", "load", "reload", "list", "modules", "errors",
+            "diagnostics", "conflicts", "coord", "automation", "auto", "diag", "crystal", "ac",
+            "assets", "version", "ver", "extensions", "ext", "scripts", "script");
 
     /**
      * Handles a raw chat line. Returns true when the line was a Crystal command and must
@@ -104,6 +140,18 @@ public final class CommandManager {
         }
         String command = tokens.get(0).toLowerCase(Locale.ROOT);
         List<String> args = tokens.subList(1, tokens.size());
+        // Extension-registered commands take precedence only for names the core does not own,
+        // so an extension can never shadow a built-in.
+        var dynamic = dynamicCommands.get(command);
+        if (dynamic != null) {
+            try {
+                dynamic.test(args);
+            } catch (Throwable t) {
+                client.notify("Command '" + command + "' failed: " + t.getMessage(),
+                        NotificationLevel.ERROR);
+            }
+            return;
+        }
         switch (command) {
             case "help", "?" -> help();
             case "toggle", "t" -> toggle(args);
@@ -152,6 +200,8 @@ public final class CommandManager {
             case "errors", "diagnostics" -> errors(args);
             case "conflicts", "coord" -> conflicts(args);
             case "automation", "auto" -> automation(args);
+            case "extensions", "ext" -> extensions(args);
+            case "scripts", "script" -> scripts();
             case "diag" -> diagnostics();
             case "crystal", "ac" -> crystalAnalysis();
             case "assets" -> assets(args);
@@ -1445,6 +1495,59 @@ public final class CommandManager {
         } catch (RuntimeException e) {
             client.notify("Could not parse rule: " + e.getMessage(), NotificationLevel.ERROR);
         }
+    }
+
+    /**
+     * The extension surface: {@code list}, {@code enable <id>}, {@code disable <id>},
+     * {@code reload}. Enabling requires explicit user approval - a discovered extension is
+     * never activated automatically.
+     */
+    private void extensions(List<String> args) {
+        var manager = client.extensions();
+        if (manager == null) {
+            client.notify("Extension system unavailable", NotificationLevel.WARN);
+            return;
+        }
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("list")) {
+            if (manager.installed().isEmpty()) {
+                client.notify("No extensions found (see docs/extension-development.md)",
+                        NotificationLevel.INFO);
+                return;
+            }
+            for (var ext : manager.installed()) {
+                client.notify("  " + ext.summary(), ext.loaded()
+                        ? NotificationLevel.SUCCESS : NotificationLevel.INFO);
+            }
+            return;
+        }
+        String sub = args.get(0).toLowerCase(Locale.ROOT);
+        if (args.size() < 2 && (sub.equals("enable") || sub.equals("disable") || sub.equals("reload"))) {
+            client.notify("Usage: ; extensions " + sub + " <id>", NotificationLevel.WARN);
+            return;
+        }
+        String id = args.size() >= 2 ? args.get(1) : "";
+        switch (sub) {
+            case "enable" -> client.notify(manager.enable(id)
+                    ? "Enabled " + id : "Could not enable " + id,
+                    manager.isEnabled(id) ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+            case "disable" -> client.notify(manager.disable(id)
+                    ? "Disabled " + id : "Could not disable " + id,
+                    manager.isEnabled(id) ? NotificationLevel.WARN : NotificationLevel.SUCCESS);
+            case "reload" -> {
+                manager.reload();
+                client.notify("Rescanned extensions", NotificationLevel.INFO);
+            }
+            default -> client.notify("Usage: ; extensions <list|enable|disable|reload>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /** Explains the scripting decision honestly: not implemented, and why. */
+    private void scripts() {
+        client.notify("Scripting is not implemented in this build.", NotificationLevel.INFO);
+        client.notify("  Reason: no maintained embedded runtime can enforce the CPU/memory "
+                + "limits required to run user code safely. See docs/scripting.md.",
+                NotificationLevel.INFO);
     }
 
     /** Runs the Diagnostics module's report, enabling it first when necessary. */

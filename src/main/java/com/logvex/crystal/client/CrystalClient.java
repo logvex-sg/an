@@ -73,6 +73,8 @@ public final class CrystalClient implements ClientModInitializer {
     private HudLayoutStore hudLayoutStore;
     private FavoritesStore favoritesStore;
     private ProfileService profileService;
+    /** Advanced workspaces: selective apply + preview over the profile store. */
+    private com.logvex.crystal.workspace.AdvancedWorkspaceService workspaces;
     private final com.logvex.crystal.context.ContextProfileService contextProfiles =
             new com.logvex.crystal.context.ContextProfileService();
     private final com.logvex.crystal.context.ContextStore contextStore =
@@ -108,6 +110,12 @@ public final class CrystalClient implements ClientModInitializer {
             new com.logvex.crystal.automation.AutomationEngine(events);
     private com.logvex.crystal.automation.AutomationStore automationStore;
     private com.logvex.crystal.automation.ClientAutomationContext automationContext;
+    /** The injected service context, kept so the extension API can attach extension modules. */
+    private ModuleContext moduleContext;
+    /** The stable extension API registry and the extension lifecycle manager. */
+    private com.logvex.crystal.api.ApiRegistry apiRegistry;
+    private com.logvex.crystal.extension.ExtensionManager extensionManager;
+    private com.logvex.crystal.extension.ExtensionPreferences extensionPreferences;
 
     private boolean wasInWorld;
     private String lastDimension = "";
@@ -204,8 +212,9 @@ public final class CrystalClient implements ClientModInitializer {
         hud = new HudManager(modules, theme);
         hudLayoutStore = new HudLayoutStore(ConfigPaths.hud());
         hudLayoutStore.loadInto(hud.layout());
-        modules.attachContext(new ModuleContext(modules, combat, theme, hud, notifications, config,
-                actionCoordinator));
+        moduleContext = new ModuleContext(modules, combat, theme, hud, notifications, config,
+                actionCoordinator);
+        modules.attachContext(moduleContext);
         // The coordination inspector reads module declarations against the live environment.
         // Services are always present; Baritone is an optional integration; the world-query
         // capability is available whenever a world is loaded.
@@ -227,6 +236,7 @@ public final class CrystalClient implements ClientModInitializer {
         favoritesStore.load();
         profileService = new ProfileService(new ProfileManager(ConfigPaths.profiles()), config,
                 hudLayoutStore, appearanceStore, hud.layout(), theme.settings(), this::afterConfigApply);
+        workspaces = new com.logvex.crystal.workspace.AdvancedWorkspaceService(profileService);
         contextStore.loadInto(contextProfiles);
 
         commands = new CommandManager(this);
@@ -252,6 +262,37 @@ public final class CrystalClient implements ClientModInitializer {
                 combat, baritone, profileService, contextProfiles, notifications, errors(),
                 actionCoordinator);
         automation.setEnabled(automationLoad.enabled());
+
+        // The stable extension API: a scoped registration registry plus the extension lifecycle.
+        // Capabilities are computed live so an extension sees the truth (e.g. Baritone only when
+        // it is actually present). Extensions are discovered but never run until approved.
+        apiRegistry = new com.logvex.crystal.api.ApiRegistry(
+                new com.logvex.crystal.api.ClientApiServices(events, modules, commands, hud,
+                        notifications, errors(), moduleContext),
+                this::capabilities, modVersion());
+        extensionPreferences = new com.logvex.crystal.extension.ExtensionPreferences(
+                ConfigPaths.extensions());
+        extensionPreferences.load();
+        extensionManager = new com.logvex.crystal.extension.ExtensionManager(
+                apiRegistry.asExtensionHost(), new com.logvex.crystal.extension.ExtensionManager.Log() {
+                    @Override
+                    public void warn(String message) {
+                        LOG.warn(message);
+                    }
+
+                    @Override
+                    public void error(String message, Throwable error) {
+                        LOG.error(message, error);
+                    }
+                }, extensionPreferences);
+        for (var candidate : com.logvex.crystal.extension.FabricExtensionDiscovery
+                .discover(net.fabricmc.loader.api.FabricLoader.getInstance())) {
+            extensionManager.discover(candidate);
+        }
+        int autoEnabled = extensionManager.enableApproved();
+        if (autoEnabled > 0) {
+            LOG.info("Re-enabled {} approved extension(s)", autoEnabled);
+        }
 
         registerKeybind();
         registerCosmetics();
@@ -285,6 +326,16 @@ public final class CrystalClient implements ClientModInitializer {
             modules.shutdownAll();
         } catch (Throwable t) {
             LOG.warn("Module shutdown failed", t);
+        }
+        try {
+            if (extensionManager != null) {
+                extensionManager.shutdownAll();
+            }
+            if (apiRegistry != null) {
+                apiRegistry.closeAll();
+            }
+        } catch (Throwable t) {
+            LOG.warn("Extension shutdown failed", t);
         }
     }
 
@@ -1016,6 +1067,50 @@ public final class CrystalClient implements ClientModInitializer {
     /** Named configuration profiles (save/load/import/export). */
     public ProfileService profiles() {
         return profileService;
+    }
+
+    /** Advanced workspaces: selective apply and preview over the profile store. */
+    public com.logvex.crystal.workspace.AdvancedWorkspaceService workspaces() {
+        return workspaces;
+    }
+
+    /** The extension lifecycle manager, or null before bootstrap completes. */
+    public com.logvex.crystal.extension.ExtensionManager extensions() {
+        return extensionManager;
+    }
+
+    /** The stable extension API registry, or null before bootstrap completes. */
+    public com.logvex.crystal.api.ApiRegistry apiRegistry() {
+        return apiRegistry;
+    }
+
+    /** The capabilities available to extensions right now. */
+    public com.logvex.crystal.api.Capabilities capabilities() {
+        java.util.Set<String> active = new java.util.LinkedHashSet<>();
+        active.add(com.logvex.crystal.api.Capabilities.COMBAT);
+        active.add(com.logvex.crystal.api.Capabilities.WAYPOINTS);
+        active.add(com.logvex.crystal.api.Capabilities.HUD);
+        active.add(com.logvex.crystal.api.Capabilities.COMMANDS);
+        active.add(com.logvex.crystal.api.Capabilities.EVENTS);
+        active.add(com.logvex.crystal.api.Capabilities.MODULES);
+        active.add(com.logvex.crystal.api.Capabilities.NOTIFICATIONS);
+        active.add(com.logvex.crystal.api.Capabilities.DIAGNOSTICS);
+        if (baritone != null && baritone.available()) {
+            active.add(com.logvex.crystal.api.Capabilities.BARITONE);
+        }
+        if (net.minecraft.client.MinecraftClient.getInstance() != null
+                && net.minecraft.client.MinecraftClient.getInstance().world != null) {
+            active.add(com.logvex.crystal.api.Capabilities.WORLD);
+        }
+        return new com.logvex.crystal.api.Capabilities(active);
+    }
+
+    /** This client's mod version, or {@code dev} when running unmapped. */
+    public static String modVersion() {
+        return net.fabricmc.loader.api.FabricLoader.getInstance()
+                .getModContainer("logvex-crystal")
+                .map(container -> container.getMetadata().getVersion().getFriendlyString())
+                .orElse("dev");
     }
 
     public void notify(String message, NotificationLevel level) {

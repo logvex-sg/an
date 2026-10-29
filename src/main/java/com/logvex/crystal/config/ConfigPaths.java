@@ -50,6 +50,11 @@ public final class ConfigPaths {
         return directory().resolve("automation.json");
     }
 
+    /** Persisted extension approval decisions. */
+    public static Path extensions() {
+        return directory().resolve("extensions.json");
+    }
+
     /** Directory holding named configuration profiles. */
     public static Path profiles() {
         return directory().resolve("profiles");

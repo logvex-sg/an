@@ -179,6 +179,11 @@ public final class HudManager {
         layout.entry(element.id());
     }
 
+    /** Unregisters a HUD element by id (used by the extension API to release one). */
+    public void removeElement(String id) {
+        elements.remove(id);
+    }
+
     public HudLayout layout() {
         return layout;
     }
