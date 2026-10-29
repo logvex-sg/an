@@ -150,6 +150,7 @@ public final class CommandManager {
             case "load", "reload" -> load();
             case "list", "modules" -> list(args);
             case "errors", "diagnostics" -> errors(args);
+            case "conflicts", "coord" -> conflicts(args);
             case "diag" -> diagnostics();
             case "crystal", "ac" -> crystalAnalysis();
             case "assets" -> assets(args);
@@ -1302,6 +1303,31 @@ public final class CommandManager {
         var latest = log.latest();
         if (latest != null) {
             client.notify("Latest: " + latest.module() + " \u2014 " + latest.message(), NotificationLevel.INFO);
+        }
+    }
+
+    /**
+     * Reports the module-coordination inspector's findings: unsatisfied typed dependencies,
+     * circular chains, active module conflicts, keybind clashes and current action contention.
+     * Read-only; never changes a module's state.
+     */
+    private void conflicts(List<String> args) {
+        var service = client.coordination();
+        if (service == null) {
+            client.notify("Coordination inspector unavailable", NotificationLevel.WARN);
+            return;
+        }
+        var report = service.inspect();
+        if (report.clean()) {
+            client.notify("No coordination issues \u2661 (" + client.actions().summary() + ")",
+                    NotificationLevel.SUCCESS);
+            return;
+        }
+        client.notify("Coordination: " + report.summary(), NotificationLevel.WARN);
+        for (var issue : report.issues()) {
+            client.notify("  " + issue.describe(), issue.severity()
+                    == com.logvex.crystal.coordination.ConflictReport.Severity.BLOCKING
+                    ? NotificationLevel.ERROR : NotificationLevel.INFO);
         }
     }
 

@@ -94,6 +94,11 @@ public final class CrystalClient implements ClientModInitializer {
     /** Optional Baritone integration: the only place the client talks to Baritone. */
     private final com.logvex.crystal.integration.baritone.BaritoneService baritone =
             new com.logvex.crystal.integration.baritone.BaritoneService();
+    /** Shared arbitration for client actions, so two modules cannot act on the same input. */
+    private final com.logvex.crystal.coordination.ActionCoordinator actionCoordinator =
+            new com.logvex.crystal.coordination.ActionCoordinator();
+    /** The live dependency context and the read-only coordination inspector. */
+    private com.logvex.crystal.coordination.ModuleCoordinationService coordination;
 
     private boolean wasInWorld;
     private String lastDimension = "";
@@ -190,7 +195,17 @@ public final class CrystalClient implements ClientModInitializer {
         hud = new HudManager(modules, theme);
         hudLayoutStore = new HudLayoutStore(ConfigPaths.hud());
         hudLayoutStore.loadInto(hud.layout());
-        modules.attachContext(new ModuleContext(modules, combat, theme, hud, notifications, config));
+        modules.attachContext(new ModuleContext(modules, combat, theme, hud, notifications, config,
+                actionCoordinator));
+        // The coordination inspector reads module declarations against the live environment.
+        // Services are always present; Baritone is an optional integration; the world-query
+        // capability is available whenever a world is loaded.
+        coordination = new com.logvex.crystal.coordination.ModuleCoordinationService(modules,
+                new com.logvex.crystal.coordination.ClientDependencyContext(modules)
+                        .service("combat").service("hud").service("notifications").service("theme")
+                        .capability("world-query")
+                        .integration("baritone", () -> baritone.available()),
+                actionCoordinator);
         loadingConfig = true;
         try {
             config.load();
@@ -351,6 +366,7 @@ public final class CrystalClient implements ClientModInitializer {
             com.logvex.crystal.world.SessionStats.get().tick(client);
             baritone.tick(client);
             modules.tickAll();
+            actionCoordinator.tick(System.currentTimeMillis());
             notifications.prune();
             cosmetics.tick(client);
             while (clickGuiKey.wasPressed()) {
@@ -925,6 +941,16 @@ public final class CrystalClient implements ClientModInitializer {
     /** The shared Baritone integration service (always present; availability is probed lazily). */
     public com.logvex.crystal.integration.baritone.BaritoneService baritone() {
         return baritone;
+    }
+
+    /** The shared action coordinator every acting module submits through. */
+    public com.logvex.crystal.coordination.ActionCoordinator actions() {
+        return actionCoordinator;
+    }
+
+    /** The read-only module-coordination inspector (dependencies, conflicts, action contention). */
+    public com.logvex.crystal.coordination.ModuleCoordinationService coordination() {
+        return coordination;
     }
 
     /** Favourite/recent module tracking for the ClickGUI. */
