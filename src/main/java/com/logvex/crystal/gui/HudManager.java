@@ -98,6 +98,9 @@ public final class HudManager {
         register(new com.logvex.crystal.gui.hud.AIHudElement());
         // The AI readout is opt-in too: the AIAssistant module reveals it.
         layout.entry(com.logvex.crystal.gui.hud.AIHudElement.ID).visible = false;
+        register(new com.logvex.crystal.gui.hud.CommandCenterHudElement());
+        // The Command Center roll-up is opt-in: the CommandCenter module reveals it.
+        layout.entry(com.logvex.crystal.gui.hud.CommandCenterHudElement.ID).visible = false;
     }
 
     private static String pingText(int ping) {

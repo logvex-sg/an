@@ -88,7 +88,8 @@ public final class CommandManager {
             "fav", "recent", "appearance", "appear", "keybinds", "keys", "profile", "profiles",
             "favorite", "favourite", "save", "load", "reload", "list", "modules", "errors",
             "diagnostics", "conflicts", "coord", "automation", "auto", "diag", "crystal", "ac",
-            "assets", "version", "ver", "extensions", "ext", "scripts", "script", "ai");
+            "assets", "version", "ver", "extensions", "ext", "scripts", "script", "ai",
+            "center", "commandcenter", "hub");
 
     /**
      * Handles a raw chat line. Returns true when the line was a Crystal command and must
@@ -108,6 +109,23 @@ public final class CommandManager {
             CrystalClient.LOG.warn("Command failed: {}", body, t);
         }
         return true;
+    }
+
+    /**
+     * Runs a built-in command from inside the client (not from chat), so a screen or the
+     * Command Center can reuse the exact same command surface. Tokens are split the same way
+     * chat input is, and a failure is reported rather than thrown.
+     */
+    public void runFromHost(String commandLine) {
+        if (commandLine == null || commandLine.isBlank()) {
+            return;
+        }
+        try {
+            dispatch(CommandTokenizer.tokenize(commandLine.trim()));
+        } catch (Throwable t) {
+            client.notify("Command error: " + t.getMessage(), NotificationLevel.ERROR);
+            CrystalClient.LOG.warn("Host command failed: {}", commandLine, t);
+        }
     }
 
     /**
@@ -199,6 +217,7 @@ public final class CommandManager {
             case "list", "modules" -> list(args);
             case "errors", "diagnostics" -> errors(args);
             case "conflicts", "coord" -> conflicts(args);
+            case "center", "commandcenter", "hub" -> center(args);
             case "automation", "auto" -> automation(args);
             case "ai" -> ai(args);
             case "extensions", "ext" -> extensions(args);
@@ -1344,6 +1363,100 @@ public final class CommandManager {
         }
         client.notify("Unknown category '" + args.get(0) + "'", NotificationLevel.ERROR);
     }
+
+    /**
+     * The {@code ; center} command: the central Command Center. It rolls up every subsystem's
+     * status, reports module compatibility and performance, and can run any registered action.
+     * Subcommands: {@code status, perf, compat [module], actions, run <id>, save, reload}.
+     */
+    private void center(List<String> args) {
+        var service = client.commandCenter();
+        if (service == null) {
+            client.notify("Command Center unavailable", NotificationLevel.WARN);
+            return;
+        }
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("status")) {
+            centerStatus(service);
+            return;
+        }
+        switch (args.get(0).toLowerCase(Locale.ROOT)) {
+            case "perf", "performance" -> {
+                var report = service.performance();
+                client.notify(report.summary(), report.clean() ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+                for (var finding : report.findings()) {
+                    client.notify("  " + finding.describe(), NotificationLevel.INFO);
+                }
+            }
+            case "compat", "compatibility" -> centerCompat(service, args);
+            case "actions", "list" -> {
+                client.notify("Command Center actions (" + service.actions().size() + ")", NotificationLevel.INFO);
+                for (String category : service.actions().categories()) {
+                    StringBuilder line = new StringBuilder("  " + category + ": ");
+                    for (var action : service.actions().byCategory(category)) {
+                        line.append(action.id()).append(' ');
+                    }
+                    client.notify(line.toString().trim(), NotificationLevel.INFO);
+                }
+            }
+            case "run" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; center run <action-id>", NotificationLevel.WARN);
+                    return;
+                }
+                var result = service.run(args.get(1));
+                client.notify(result.message(), result.success() ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+            }
+            case "save" -> {
+                client.saveAll();
+                client.notify("Configuration saved \u2661", NotificationLevel.SUCCESS);
+            }
+            case "reload" -> {
+                client.reloadAll();
+                client.notify("Configuration reloaded", NotificationLevel.SUCCESS);
+            }
+            default -> client.notify("Unknown subcommand. Try ; center status", NotificationLevel.WARN);
+        }
+    }
+
+    /** Prints the rolled-up status: one line per section, then the problem entries. */
+    private void centerStatus(com.logvex.crystal.commandcenter.CommandCenterService service) {
+        var model = service.snapshot();
+        client.notify("\u2661 Command Center \u2014 " + model.summary(), model.healthy()
+                ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+        for (var section : model.sections()) {
+            client.notify("  " + section.title() + ": " + section.summary(), section.worst()
+                    == com.logvex.crystal.commandcenter.HealthStatus.CRITICAL ? NotificationLevel.ERROR
+                    : section.worst().needsAttention() ? NotificationLevel.WARN : NotificationLevel.INFO);
+        }
+        for (var entry : model.problems()) {
+            client.notify("  ! " + entry.describe(), NotificationLevel.WARN);
+        }
+    }
+
+    /** Prints compatibility verdicts: blocked modules when no name is given, else one module. */
+    private void centerCompat(com.logvex.crystal.commandcenter.CommandCenterService service,
+                              List<String> args) {
+        if (args.size() >= 2) {
+            var verdict = service.verdictFor(args.get(1));
+            if (verdict == null) {
+                client.notify("No module named '" + args.get(1) + "'", NotificationLevel.ERROR);
+                return;
+            }
+            client.notify(verdict.describe(), verdict.operable() ? NotificationLevel.SUCCESS
+                    : NotificationLevel.WARN);
+            return;
+        }
+        var blocked = service.compatibility().blocked();
+        if (blocked.isEmpty()) {
+            client.notify("All modules compatible \u2661", NotificationLevel.SUCCESS);
+            return;
+        }
+        client.notify(blocked.size() + " module(s) with compatibility notes:", NotificationLevel.WARN);
+        for (var verdict : blocked) {
+            client.notify("  " + verdict.describe(), NotificationLevel.WARN);
+        }
+    }
+
 
     /**
      * Reports recent module failures. With {@code clear} it empties the log. This is the

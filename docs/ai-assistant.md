@@ -2,7 +2,7 @@
 
 > Verified against the source tree on branch `feat/femboy-product-depth`, with a real
 > `./gradlew build` (JDK 25 build JVM / Java 21 toolchain). Build result: **BUILD SUCCESSFUL,
-> 581 tests, 0 failures, 0 errors**. Every claim below names the file that implements it.
+> 637 tests, 0 failures, 0 errors**. Every claim below names the file that implements it.
 
 ## 1. What this subsystem is
 

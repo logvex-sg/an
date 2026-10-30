@@ -1,6 +1,6 @@
 # LOGVEX CRYSTAL - Module Implementation Matrix
 
-> 69 registered modules (`ModuleRegistry.EXPECTED_MODULE_COUNT`, asserted by
+> 70 registered modules (`ModuleRegistry.EXPECTED_MODULE_COUNT`, asserted by
 > `ModuleRegistryTest`). Generated from the source at commit `5da1ad7`.
 >
 > **Status key**
@@ -109,6 +109,7 @@
 | HudEditor | `misc/HudEditorModule.java` | 0 | - | - | Open the drag-and-drop HUD layout editor. |
 | ChestLogger | `misc/ChestLoggerModule.java` | 10 | - | - | Counts chests in loaded chunks and clusters them locally. |
 | Diagnostics | `misc/DiagnosticsModule.java` | 3 | - | - | Reports client health: errors, files, performance, version. |
+| CommandCenter | `misc/CommandCenterModule.java` | 1 | - | - | Reveals the compact Command Center HUD: status, compatibility and performance roll-up. |
 | Baritone | `misc/BaritoneModule.java` | 2 | - | - | Baritone navigation diagnostics, controls and HUD readout. Optional: works without Baritone. |
 | AIAssistant | `misc/AIAssistantModule.java` | 21 | - | - | Optional local AI: crash intelligence, Baritone help and bug reports. |
 

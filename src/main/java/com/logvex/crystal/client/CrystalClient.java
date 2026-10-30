@@ -141,6 +141,12 @@ public final class CrystalClient implements ClientModInitializer {
     private com.logvex.crystal.event.ClientEventBus.Subscription aiEventSubscription;
     private long lastBaritoneAdviceMillis;
 
+    // ---- Phase 8A: central Command Center (status, compatibility, performance) ----
+    /** The unified control centre; null only before bootstrap finishes. */
+    private com.logvex.crystal.commandcenter.CommandCenterService commandCenter;
+    /** Wall-clock of the last cached status snapshot, so the tick path can throttle it. */
+    private long lastCommandCenterSnapshotMillis;
+
     private boolean wasInWorld;
     private String lastDimension = "";
     private AutoSave autoSave;
@@ -319,6 +325,7 @@ public final class CrystalClient implements ClientModInitializer {
         }
 
         bootstrapAi();
+        bootstrapCommandCenter();
 
         registerKeybind();
         registerCosmetics();
@@ -427,6 +434,52 @@ public final class CrystalClient implements ClientModInitializer {
     }
 
     /**
+     * Builds the central Command Center: the compatibility engine over the live coordination
+     * inspector, the performance monitor/intelligence, the status providers that adapt each
+     * existing subsystem into a section, and the standard action set.
+     *
+     * <p>It owns no state of its own beyond the rolling frame window and the cached snapshot;
+     * every section is produced from a service that already exists. A provider failure is
+     * isolated by the service, so one broken subsystem cannot blank the whole control centre.
+     */
+    private void bootstrapCommandCenter() {
+        var compatibility = new com.logvex.crystal.commandcenter.ModuleCompatibilityEngine(modules, coordination);
+        var monitor = new com.logvex.crystal.commandcenter.PerformanceMonitor();
+        var intelligence = new com.logvex.crystal.commandcenter.PerformanceIntelligence();
+        commandCenter = new com.logvex.crystal.commandcenter.CommandCenterService(
+                compatibility, monitor, intelligence);
+
+        commandCenter.addProvider(new com.logvex.crystal.commandcenter.provider.ClientInfoStatusProvider(
+                modVersion(), MinecraftClient.getInstance().getGameVersion(), loaderVersion(),
+                net.fabricmc.loader.api.FabricLoader.getInstance().getAllMods().size()));
+        commandCenter.addProvider(new com.logvex.crystal.commandcenter.provider.ModuleStatusProvider(
+                modules, errors()));
+        commandCenter.addProvider(new com.logvex.crystal.commandcenter.provider.CoordinationStatusProvider(
+                coordination, actionCoordinator));
+        commandCenter.addProvider(new com.logvex.crystal.commandcenter.provider.AIStatusProvider(
+                aiSettings, ai, crashMonitor, reportService));
+        commandCenter.addProvider(new com.logvex.crystal.commandcenter.provider.BaritoneStatusProvider(baritone));
+        commandCenter.addProvider(new com.logvex.crystal.commandcenter.provider.EventStatusProvider(events));
+        commandCenter.addProvider(new com.logvex.crystal.commandcenter.provider.ProfileStatusProvider(profileService));
+        commandCenter.addProvider(new com.logvex.crystal.commandcenter.provider.ExtensionStatusProvider(extensionManager));
+        commandCenter.addProvider(new com.logvex.crystal.commandcenter.provider.AutomationStatusProvider(automation));
+        commandCenter.addProvider(new com.logvex.crystal.commandcenter.provider.ThemeStatusProvider(theme));
+
+        var host = new com.logvex.crystal.commandcenter.ClientCommandCenterHost(this);
+        var standardActions = new com.logvex.crystal.commandcenter.StandardActions(host, commandCenter.actions());
+        standardActions.registerAll();
+        // Give the Command Center a toggle verb for every module, so the GUI and the action
+        // registry can drive modules by name without holding the module object.
+        java.util.List<String> moduleNames = new java.util.ArrayList<>();
+        for (var module : modules.all()) {
+            moduleNames.add(module.name());
+        }
+        standardActions.registerModuleToggles(moduleNames);
+        LOG.info("Command Center ready: {} providers, {} actions", commandCenter.providers().size(),
+                commandCenter.actions().size());
+    }
+
+    /**
      * The mini-AI per-tick work: advance the model manager's idle-unload clock and refresh the
      * cached Baritone advice at a low rate. Both are cheap; the model's heavy work happens on its
      * own worker thread, so the game thread is never blocked.
@@ -470,6 +523,44 @@ public final class CrystalClient implements ClientModInitializer {
             return "not initialised";
         }
         return ai.state().label() + ", queue " + ai.queueDepth() + "/" + ai.queueLimit();
+    }
+
+    /**
+     * The Command Center's per-tick step. It samples the performance counters every tick
+     * (cheap: one array write and a few reads) and rebuilds the cached status snapshot at
+     * most twice a second, so opening the HUD or a screen never triggers a fresh scan.
+     */
+    private void tickCommandCenter() {
+        if (commandCenter == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        int activeModules = 0;
+        double worstTick = 0;
+        double totalTick = 0;
+        String worstName = "";
+        for (var module : modules.all()) {
+            if (!module.isEnabled()) {
+                continue;
+            }
+            activeModules++;
+            double nanos = module.lastTickNanos();
+            totalTick += nanos / 1_000_000.0;
+            if (nanos > worstTick) {
+                worstTick = nanos / 1_000_000.0;
+                worstName = module.name();
+            }
+        }
+        int aiQueue = ai == null ? 0 : ai.queueDepth();
+        int aiRejected = ai == null ? 0 : ai.rejectedCount();
+        int backlog = events.history().size();
+        int activeActions = actionCoordinator.activeCount();
+        commandCenter.samplePerformance(now, activeModules, worstName, worstTick, totalTick,
+                aiQueue, aiRejected, backlog, activeActions);
+        if (now - lastCommandCenterSnapshotMillis >= 500) {
+            lastCommandCenterSnapshotMillis = now;
+            commandCenter.refreshStatus();
+        }
     }
 
     private static String loaderVersion() {
@@ -549,6 +640,9 @@ public final class CrystalClient implements ClientModInitializer {
                 || client.currentScreen instanceof com.logvex.crystal.gui.HudEditorScreen) {
             hud.render(context, client, tickCounter.getDynamicDeltaTicks());
         }
+        if (commandCenter != null) {
+            commandCenter.recordFrame(FrameClock.deltaMillis());
+        }
         cosmetics.renderParticles(context, client);
     }
 
@@ -590,6 +684,7 @@ public final class CrystalClient implements ClientModInitializer {
             actionCoordinator.tick(System.currentTimeMillis());
             eventFeed.tick(client);
             tickAi(client);
+            tickCommandCenter();
             automation.tick(automationContext, System.currentTimeMillis());
             notifications.prune();
             cosmetics.tick(client);
@@ -1147,6 +1242,11 @@ public final class CrystalClient implements ClientModInitializer {
 
     public CommandManager commands() {
         return commands;
+    }
+
+    /** The central Command Center: unified status, module compatibility and performance. */
+    public com.logvex.crystal.commandcenter.CommandCenterService commandCenter() {
+        return commandCenter;
     }
 
     /**

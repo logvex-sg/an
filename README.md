@@ -81,6 +81,7 @@ All commands are local-only. Prefix `;` or `.crystal`.
 | `; profile <list\|save\|overwrite\|load\|delete\|starters\|gui>` | Manage configuration profiles |
 | `; favorite <module>` | Star/unstar a module |
 | `; ai <status\|gui\|on\|off\|local\|model\|crashes\|analyse\|baritone\|report\|reports\|send\|mailto>` | Optional local AI assistant |
+| `; center <status\|perf\|compat [module]\|actions\|run <id>\|save\|reload>` | Unified status, compatibility and performance hub |
 | `; toggle <module>` | Enable/disable a module |
 | `; bind <module> <key>` | Set a module keybind |
 | `; set <module> <setting> <value>` | Change any module setting |
