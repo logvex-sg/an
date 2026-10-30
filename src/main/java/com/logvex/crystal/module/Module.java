@@ -40,6 +40,7 @@ public abstract class Module {
     private final List<SettingGroup> groupsView = Collections.unmodifiableList(groups);
     private final List<String> dependencies = new ArrayList<>();
     private final List<String> conflicts = new ArrayList<>();
+    private final List<com.logvex.crystal.coordination.ModuleDependency> typedDependencies = new ArrayList<>();
 
     private boolean enabled;
     private long enabledAtMillis;
@@ -159,8 +160,26 @@ public abstract class Module {
         conflicts.add(moduleName);
     }
 
+    /**
+     * Declares a typed dependency (module/service/integration/capability/mode). Unlike the
+     * legacy {@link #dependsOn(String)} edge, this can express a shared service, an optional
+     * integration, a runtime capability or a required mode, and it carries a human-readable
+     * reason the client surfaces when the requirement is unmet. Evaluated by the coordination
+     * layer; declaring one never enables anything by itself.
+     */
+    protected final void requires(com.logvex.crystal.coordination.ModuleDependency dependency) {
+        if (dependency != null) {
+            typedDependencies.add(dependency);
+        }
+    }
+
     public final List<String> dependencies() {
         return Collections.unmodifiableList(dependencies);
+    }
+
+    /** Typed dependencies declared via {@link #requires}. */
+    public final List<com.logvex.crystal.coordination.ModuleDependency> typedDependencies() {
+        return Collections.unmodifiableList(typedDependencies);
     }
 
     public final List<String> conflicts() {

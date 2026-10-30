@@ -91,6 +91,16 @@ public final class HudManager {
         register(new com.logvex.crystal.gui.hud.EntityCountHudElement());
         register(new com.logvex.crystal.gui.hud.WorldInfoHudElement());
         register(new KeystrokesHudElement());
+        register(new com.logvex.crystal.gui.hud.BaritoneHudElement());
+        // The Baritone readout is opt-in: the Baritone module reveals it, so it starts hidden
+        // rather than occupying HUD space for players who do not use Baritone.
+        layout.entry(com.logvex.crystal.gui.hud.BaritoneHudElement.ID).visible = false;
+        register(new com.logvex.crystal.gui.hud.AIHudElement());
+        // The AI readout is opt-in too: the AIAssistant module reveals it.
+        layout.entry(com.logvex.crystal.gui.hud.AIHudElement.ID).visible = false;
+        register(new com.logvex.crystal.gui.hud.CommandCenterHudElement());
+        // The Command Center roll-up is opt-in: the CommandCenter module reveals it.
+        layout.entry(com.logvex.crystal.gui.hud.CommandCenterHudElement.ID).visible = false;
     }
 
     private static String pingText(int ping) {
@@ -173,6 +183,11 @@ public final class HudManager {
     public void register(HudElement element) {
         elements.put(element.id(), element);
         layout.entry(element.id());
+    }
+
+    /** Unregisters a HUD element by id (used by the extension API to release one). */
+    public void removeElement(String id) {
+        elements.remove(id);
     }
 
     public HudLayout layout() {

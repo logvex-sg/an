@@ -2,6 +2,7 @@ package com.logvex.crystal.module;
 
 import com.logvex.crystal.combat.CombatService;
 import com.logvex.crystal.config.ConfigManager;
+import com.logvex.crystal.coordination.ActionCoordinator;
 import com.logvex.crystal.gui.HudManager;
 import com.logvex.crystal.notification.NotificationManager;
 import com.logvex.crystal.theme.ThemeManager;
@@ -19,15 +20,24 @@ public final class ModuleContext {
     private final HudManager hudManager;
     private final NotificationManager notifications;
     private final ConfigManager configManager;
+    private final ActionCoordinator actionCoordinator;
 
     public ModuleContext(ModuleManager moduleManager, CombatService combatService, ThemeManager theme,
                          HudManager hudManager, NotificationManager notifications, ConfigManager configManager) {
+        this(moduleManager, combatService, theme, hudManager, notifications, configManager,
+                new ActionCoordinator());
+    }
+
+    public ModuleContext(ModuleManager moduleManager, CombatService combatService, ThemeManager theme,
+                         HudManager hudManager, NotificationManager notifications, ConfigManager configManager,
+                         ActionCoordinator actionCoordinator) {
         this.moduleManager = moduleManager;
         this.combatService = combatService;
         this.theme = theme;
         this.hudManager = hudManager;
         this.notifications = notifications;
         this.configManager = configManager;
+        this.actionCoordinator = actionCoordinator == null ? new ActionCoordinator() : actionCoordinator;
     }
 
     public ModuleManager moduleManager() {
@@ -52,5 +62,14 @@ public final class ModuleContext {
 
     public ConfigManager configManager() {
         return configManager;
+    }
+
+    /**
+     * The shared action arbitration layer. Modules that perform a client action (place, break,
+     * attack, inventory move) should submit it here rather than driving the interaction manager
+     * directly, so two modules cannot act on the same input in the same tick.
+     */
+    public ActionCoordinator actions() {
+        return actionCoordinator;
     }
 }

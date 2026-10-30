@@ -49,10 +49,47 @@ public final class CommandManager {
     private static final String[] PREFIXES = {ALT_PREFIX, LEGACY_PREFIX, PREFIX};
 
     private final CrystalClient client;
+    /** Commands registered at runtime by extensions, keyed by lower-case name. */
+    private final java.util.Map<String, java.util.function.Predicate<java.util.List<String>>>
+            dynamicCommands = new java.util.concurrent.ConcurrentHashMap<>();
 
     public CommandManager(CrystalClient client) {
         this.client = client;
     }
+
+    /**
+     * Registers a runtime command (used by extensions). Returns a runnable that unregisters it.
+     * A name already handled by the built-in dispatch is rejected so an extension cannot shadow
+     * core commands.
+     */
+    public Runnable registerDynamic(String name, java.util.function.Predicate<java.util.List<String>> handler) {
+        String key = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        if (key.isEmpty() || isBuiltIn(key)) {
+            throw new IllegalArgumentException("Command name unavailable: " + name);
+        }
+        dynamicCommands.put(key, handler);
+        return () -> dynamicCommands.remove(key, handler);
+    }
+
+    /** True when the given name is a built-in command (checked against the dispatch switch). */
+    private static boolean isBuiltIn(String command) {
+        return BUILT_IN_COMMANDS.contains(command);
+    }
+
+    /** The set of built-in command names, kept in sync with {@link #dispatch}. */
+    private static final java.util.Set<String> BUILT_IN_COMMANDS = java.util.Set.of(
+            "help", "?", "toggle", "t", "bind", "b", "set", "theme", "preset", "variant",
+            "accent", "primary", "secondary", "opacity", "gradient", "glow", "radius", "scale",
+            "animation", "anim", "decorations", "cat", "catcosmetics", "reducedmotion", "motion",
+            "blur", "cursor", "sounds", "splash", "easteregg", "secret", "hud", "hudedit",
+            "waypoint", "wp", "baritone", "bari", "path", "world", "worldinfo", "entities",
+            "entity", "browser", "entitybrowser", "notifications", "notifs", "context", "ctx",
+            "friend", "friends", "gui", "clickgui", "category", "cat-tab", "favorites", "favs",
+            "fav", "recent", "appearance", "appear", "keybinds", "keys", "profile", "profiles",
+            "favorite", "favourite", "save", "load", "reload", "list", "modules", "errors",
+            "diagnostics", "conflicts", "coord", "automation", "auto", "diag", "crystal", "ac",
+            "assets", "version", "ver", "extensions", "ext", "scripts", "script", "ai",
+            "center", "commandcenter", "hub");
 
     /**
      * Handles a raw chat line. Returns true when the line was a Crystal command and must
@@ -72,6 +109,23 @@ public final class CommandManager {
             CrystalClient.LOG.warn("Command failed: {}", body, t);
         }
         return true;
+    }
+
+    /**
+     * Runs a built-in command from inside the client (not from chat), so a screen or the
+     * Command Center can reuse the exact same command surface. Tokens are split the same way
+     * chat input is, and a failure is reported rather than thrown.
+     */
+    public void runFromHost(String commandLine) {
+        if (commandLine == null || commandLine.isBlank()) {
+            return;
+        }
+        try {
+            dispatch(CommandTokenizer.tokenize(commandLine.trim()));
+        } catch (Throwable t) {
+            client.notify("Command error: " + t.getMessage(), NotificationLevel.ERROR);
+            CrystalClient.LOG.warn("Host command failed: {}", commandLine, t);
+        }
     }
 
     /**
@@ -104,6 +158,18 @@ public final class CommandManager {
         }
         String command = tokens.get(0).toLowerCase(Locale.ROOT);
         List<String> args = tokens.subList(1, tokens.size());
+        // Extension-registered commands take precedence only for names the core does not own,
+        // so an extension can never shadow a built-in.
+        var dynamic = dynamicCommands.get(command);
+        if (dynamic != null) {
+            try {
+                dynamic.test(args);
+            } catch (Throwable t) {
+                client.notify("Command '" + command + "' failed: " + t.getMessage(),
+                        NotificationLevel.ERROR);
+            }
+            return;
+        }
         switch (command) {
             case "help", "?" -> help();
             case "toggle", "t" -> toggle(args);
@@ -131,6 +197,7 @@ public final class CommandManager {
             case "hud" -> hud(args);
             case "hudedit" -> hudEdit();
             case "waypoint", "wp" -> waypoint(args);
+            case "baritone", "bari", "path" -> baritone(args);
             case "world", "worldinfo" -> world();
             case "entities", "entity" -> entities(args);
             case "browser", "entitybrowser" -> openEntityBrowser();
@@ -149,6 +216,12 @@ public final class CommandManager {
             case "load", "reload" -> load();
             case "list", "modules" -> list(args);
             case "errors", "diagnostics" -> errors(args);
+            case "conflicts", "coord" -> conflicts(args);
+            case "center", "commandcenter", "hub" -> center(args);
+            case "automation", "auto" -> automation(args);
+            case "ai" -> ai(args);
+            case "extensions", "ext" -> extensions(args);
+            case "scripts", "script" -> scripts();
             case "diag" -> diagnostics();
             case "crystal", "ac" -> crystalAnalysis();
             case "assets" -> assets(args);
@@ -538,6 +611,166 @@ public final class CommandManager {
 
     private static String storePath() {
         return com.logvex.crystal.config.ConfigPaths.waypoints().toString();
+    }
+
+    /**
+     * The {@code ; baritone} command. Every path here routes through the shared
+     * {@link com.logvex.crystal.integration.baritone.BaritoneService}; the command never touches
+     * Baritone directly. When Baritone is not installed each subcommand reports the reason
+     * instead of failing.
+     */
+    private void baritone(List<String> args) {
+        var service = client.baritone();
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("status")) {
+            reportBaritoneStatus(service);
+            return;
+        }
+        if (args.get(0).equalsIgnoreCase("gui") || args.get(0).equalsIgnoreCase("screen")) {
+            if (ScreenGuard.fontsReady()) {
+                MinecraftClient.getInstance().setScreen(new com.logvex.crystal.gui.BaritoneScreen(
+                        client.theme(), service));
+            }
+            return;
+        }
+        switch (args.get(0).toLowerCase(Locale.ROOT)) {
+            case "goto" -> {
+                Integer[] xyz = parseCoords(args, 1);
+                if (xyz == null) {
+                    return;
+                }
+                String error = service.goTo(com.logvex.crystal.integration.baritone.BaritoneGoal.block(
+                        xyz[0], xyz[1], xyz[2]));
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "near" -> {
+                Integer[] xyz = parseCoords(args, 1);
+                if (xyz == null) {
+                    return;
+                }
+                int range = 1;
+                if (args.size() >= 5) {
+                    try {
+                        range = Math.max(1, (int) Double.parseDouble(args.get(4)));
+                    } catch (NumberFormatException e) {
+                        client.notify("Range must be a number", NotificationLevel.ERROR);
+                        return;
+                    }
+                }
+                String error = service.followNear(xyz[0], xyz[1], xyz[2], range);
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "wp", "waypoint" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; baritone wp <name>", NotificationLevel.WARN);
+                    return;
+                }
+                var waypoint = client.waypoints().byName(args.get(1));
+                if (waypoint == null) {
+                    client.notify("No waypoint named '" + args.get(1) + "'", NotificationLevel.ERROR);
+                    return;
+                }
+                String dimension = com.logvex.crystal.world.WorldInfo.dimensionId(MinecraftClient.getInstance());
+                if (!com.logvex.crystal.integration.baritone.BaritoneWaypointBridge.reachable(waypoint, dimension)) {
+                    client.notify(com.logvex.crystal.integration.baritone.BaritoneWaypointBridge
+                            .rejectionReason(waypoint), NotificationLevel.WARN);
+                    return;
+                }
+                String error = service.goTo(com.logvex.crystal.integration.baritone.BaritoneWaypointBridge
+                        .goalFor(waypoint, dimension));
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "here" -> {
+                String error = service.goToCurrentPosition(MinecraftClient.getInstance());
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "cancel", "stop" -> service.cancel();
+            case "pause" -> {
+                String error = service.pause();
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "resume", "unpause" -> {
+                String error = service.resume();
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "paused" -> client.notify(service.paused() ? "Baritone is paused" : "Baritone is not paused",
+                    NotificationLevel.INFO);
+            case "set" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; baritone set <setting> <value>", NotificationLevel.WARN);
+                    return;
+                }
+                String value = CommandTokenizer.join(args.subList(2, args.size()));
+                String error = service.setSetting(args.get(1), value);
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                } else {
+                    client.notify("Baritone " + args.get(1) + " = " + value, NotificationLevel.SUCCESS);
+                }
+            }
+            case "settings", "list" -> {
+                var names = service.settingNames();
+                if (names.isEmpty()) {
+                    client.notify(service.available() ? "No settings exposed" : service.unavailableReason(),
+                            NotificationLevel.INFO);
+                    return;
+                }
+                client.notify(names.size() + " Baritone settings (first 12 shown)", NotificationLevel.INFO);
+                for (int i = 0; i < Math.min(12, names.size()); i++) {
+                    client.notify("  " + names.get(i), NotificationLevel.INFO);
+                }
+            }
+            default -> client.notify(
+                    "Usage: ; baritone <status|gui|goto|near|wp|here|cancel|pause|resume|paused|set|settings>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    private void reportBaritoneStatus(com.logvex.crystal.integration.baritone.BaritoneService service) {
+        var status = service.status();
+        if (!service.probed()) {
+            client.notify("Baritone: probing\u2026", NotificationLevel.INFO);
+            return;
+        }
+        if (!status.available()) {
+            client.notify("Baritone unavailable: " + status.reason(), NotificationLevel.WARN);
+            return;
+        }
+        client.notify("Baritone " + status.version() + " \u2014 " + status.statusText(),
+                NotificationLevel.INFO);
+        if (status.hasGoalPosition()) {
+            client.notify("Goal at " + status.goalX() + " " + status.goalY() + " " + status.goalZ()
+                    + (status.pathLength() > 0 ? " \u00B7 path " + status.pathLength() + " nodes" : ""),
+                    NotificationLevel.INFO);
+        }
+    }
+
+    /** Parses three coordinates at {@code start}, or reports the error and returns null. */
+    private Integer[] parseCoords(List<String> args, int start) {
+        if (args.size() < start + 3) {
+            client.notify("Usage: coordinates <x> <y> <z>", NotificationLevel.WARN);
+            return null;
+        }
+        try {
+            return new Integer[]{
+                    (int) Double.parseDouble(args.get(start)),
+                    (int) Double.parseDouble(args.get(start + 1)),
+                    (int) Double.parseDouble(args.get(start + 2))};
+        } catch (NumberFormatException e) {
+            client.notify("Coordinates must be numbers", NotificationLevel.ERROR);
+            return null;
+        }
     }
 
     /** Prints the world-information panel's lines to chat. */
@@ -1132,6 +1365,100 @@ public final class CommandManager {
     }
 
     /**
+     * The {@code ; center} command: the central Command Center. It rolls up every subsystem's
+     * status, reports module compatibility and performance, and can run any registered action.
+     * Subcommands: {@code status, perf, compat [module], actions, run <id>, save, reload}.
+     */
+    private void center(List<String> args) {
+        var service = client.commandCenter();
+        if (service == null) {
+            client.notify("Command Center unavailable", NotificationLevel.WARN);
+            return;
+        }
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("status")) {
+            centerStatus(service);
+            return;
+        }
+        switch (args.get(0).toLowerCase(Locale.ROOT)) {
+            case "perf", "performance" -> {
+                var report = service.performance();
+                client.notify(report.summary(), report.clean() ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+                for (var finding : report.findings()) {
+                    client.notify("  " + finding.describe(), NotificationLevel.INFO);
+                }
+            }
+            case "compat", "compatibility" -> centerCompat(service, args);
+            case "actions", "list" -> {
+                client.notify("Command Center actions (" + service.actions().size() + ")", NotificationLevel.INFO);
+                for (String category : service.actions().categories()) {
+                    StringBuilder line = new StringBuilder("  " + category + ": ");
+                    for (var action : service.actions().byCategory(category)) {
+                        line.append(action.id()).append(' ');
+                    }
+                    client.notify(line.toString().trim(), NotificationLevel.INFO);
+                }
+            }
+            case "run" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; center run <action-id>", NotificationLevel.WARN);
+                    return;
+                }
+                var result = service.run(args.get(1));
+                client.notify(result.message(), result.success() ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+            }
+            case "save" -> {
+                client.saveAll();
+                client.notify("Configuration saved \u2661", NotificationLevel.SUCCESS);
+            }
+            case "reload" -> {
+                client.reloadAll();
+                client.notify("Configuration reloaded", NotificationLevel.SUCCESS);
+            }
+            default -> client.notify("Unknown subcommand. Try ; center status", NotificationLevel.WARN);
+        }
+    }
+
+    /** Prints the rolled-up status: one line per section, then the problem entries. */
+    private void centerStatus(com.logvex.crystal.commandcenter.CommandCenterService service) {
+        var model = service.snapshot();
+        client.notify("\u2661 Command Center \u2014 " + model.summary(), model.healthy()
+                ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+        for (var section : model.sections()) {
+            client.notify("  " + section.title() + ": " + section.summary(), section.worst()
+                    == com.logvex.crystal.commandcenter.HealthStatus.CRITICAL ? NotificationLevel.ERROR
+                    : section.worst().needsAttention() ? NotificationLevel.WARN : NotificationLevel.INFO);
+        }
+        for (var entry : model.problems()) {
+            client.notify("  ! " + entry.describe(), NotificationLevel.WARN);
+        }
+    }
+
+    /** Prints compatibility verdicts: blocked modules when no name is given, else one module. */
+    private void centerCompat(com.logvex.crystal.commandcenter.CommandCenterService service,
+                              List<String> args) {
+        if (args.size() >= 2) {
+            var verdict = service.verdictFor(args.get(1));
+            if (verdict == null) {
+                client.notify("No module named '" + args.get(1) + "'", NotificationLevel.ERROR);
+                return;
+            }
+            client.notify(verdict.describe(), verdict.operable() ? NotificationLevel.SUCCESS
+                    : NotificationLevel.WARN);
+            return;
+        }
+        var blocked = service.compatibility().blocked();
+        if (blocked.isEmpty()) {
+            client.notify("All modules compatible \u2661", NotificationLevel.SUCCESS);
+            return;
+        }
+        client.notify(blocked.size() + " module(s) with compatibility notes:", NotificationLevel.WARN);
+        for (var verdict : blocked) {
+            client.notify("  " + verdict.describe(), NotificationLevel.WARN);
+        }
+    }
+
+
+    /**
      * Reports recent module failures. With {@code clear} it empties the log. This is the
      * in-game view of the same errors written to the log file, so a player can see which
      * module misbehaved without leaving the game.
@@ -1156,6 +1483,356 @@ public final class CommandManager {
         if (latest != null) {
             client.notify("Latest: " + latest.module() + " \u2014 " + latest.message(), NotificationLevel.INFO);
         }
+    }
+
+    /**
+     * Reports the module-coordination inspector's findings: unsatisfied typed dependencies,
+     * circular chains, active module conflicts, keybind clashes and current action contention.
+     * Read-only; never changes a module's state.
+     */
+    private void conflicts(List<String> args) {
+        var service = client.coordination();
+        if (service == null) {
+            client.notify("Coordination inspector unavailable", NotificationLevel.WARN);
+            return;
+        }
+        var report = service.inspect();
+        if (report.clean()) {
+            client.notify("No coordination issues \u2661 (" + client.actions().summary() + ")",
+                    NotificationLevel.SUCCESS);
+            return;
+        }
+        client.notify("Coordination: " + report.summary(), NotificationLevel.WARN);
+        for (var issue : report.issues()) {
+            client.notify("  " + issue.describe(), issue.severity()
+                    == com.logvex.crystal.coordination.ConflictReport.Severity.BLOCKING
+                    ? NotificationLevel.ERROR : NotificationLevel.INFO);
+        }
+    }
+
+    /**
+     * The {@code ; ai} command: a single surface for the optional mini-AI subsystem.
+     *
+     * <p>Subcommands: {@code status, gui, enable/on, disable/off, local <on|off>, model [id],
+     * crashes, analyse, baritone, report, reports, send <id>, clearreports, mailto <id>}.
+     * Nothing here loads a model, downloads a file or sends an email on its own: those happen
+     * only through an explicit subcommand.
+     */
+    private void ai(List<String> args) {
+        var settings = client.aiSettings();
+        var ai = client.ai();
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("status")) {
+            client.notify("AI: " + (settings.enabled ? "enabled" : "disabled")
+                    + " \u00B7 local analysis " + (settings.localAnalysis ? "on" : "off")
+                    + " \u00B7 email " + (settings.emailEnabled ? "on" : "off"), NotificationLevel.INFO);
+            if (ai != null) {
+                client.notify("  model " + ai.currentSpec().displayName() + " \u00B7 " + ai.state().label()
+                        + " \u00B7 queue " + ai.queueDepth() + "/" + ai.queueLimit(), NotificationLevel.INFO);
+            }
+            client.notify("  crashes captured: " + client.crashMonitor().size()
+                    + " \u00B7 reports queued: " + client.reportService().reports().size(), NotificationLevel.INFO);
+            return;
+        }
+        switch (args.get(0).toLowerCase(Locale.ROOT)) {
+            case "gui", "screen", "open" -> {
+                if (ScreenGuard.fontsReady()) {
+                    MinecraftClient.getInstance().setScreen(
+                            new com.logvex.crystal.gui.AIAssistantScreen(client.theme(), client));
+                }
+            }
+            case "on", "enable" -> {
+                settings.enabled = true;
+                client.applyAiSettings();
+                client.notify("AI assistant enabled", NotificationLevel.SUCCESS);
+            }
+            case "off", "disable" -> {
+                settings.enabled = false;
+                client.applyAiSettings();
+                client.notify("AI assistant disabled", NotificationLevel.INFO);
+            }
+            case "local", "analysis" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; ai local <on|off>", NotificationLevel.WARN);
+                    return;
+                }
+                boolean on = args.get(1).equalsIgnoreCase("on") || args.get(1).equalsIgnoreCase("true");
+                settings.localAnalysis = on;
+                client.applyAiSettings();
+                client.notify("Local analysis " + (on ? "enabled" : "disabled"), NotificationLevel.INFO);
+            }
+            case "model" -> {
+                if (args.size() < 2) {
+                    for (var spec : com.logvex.crystal.ai.model.ModelCatalog.all()) {
+                        boolean installed = ai != null && ai.loader().isInstalled(spec);
+                        client.notify("  " + spec.id() + " \u00B7 " + spec.displayName()
+                                + (installed ? " (installed)" : ""), NotificationLevel.INFO);
+                    }
+                    return;
+                }
+                var chosen = com.logvex.crystal.ai.model.ModelCatalog.byId(args.get(1));
+                if (chosen.isEmpty()) {
+                    client.notify("No such model: " + args.get(1), NotificationLevel.ERROR);
+                    return;
+                }
+                settings.modelId = chosen.get().id();
+                client.applyAiSettings();
+                client.notify("Model set to " + chosen.get().displayName(), NotificationLevel.SUCCESS);
+            }
+            case "crashes", "history" -> {
+                var history = client.crashMonitor().history();
+                if (history.isEmpty()) {
+                    client.notify("No crashes captured \u2661", NotificationLevel.INFO);
+                    return;
+                }
+                for (var record : history) {
+                    client.notify("  " + record.category().label() + " \u00B7 " + record.severity().label()
+                            + " \u00B7 " + record.fingerprint(), NotificationLevel.INFO);
+                }
+            }
+            case "analyse", "analyze" -> {
+                var record = client.crashMonitor().latest();
+                if (record == null) {
+                    client.notify("No crash to analyse", NotificationLevel.WARN);
+                    return;
+                }
+                var diagnosis = client.crashAnalyzer().diagnose(record);
+                client.notify("Cause (" + diagnosis.confidence().label() + "): " + diagnosis.likelyCause(),
+                        NotificationLevel.INFO);
+                for (String fix : diagnosis.suggestedFixes()) {
+                    client.notify("  fix: " + fix, NotificationLevel.INFO);
+                }
+            }
+            case "baritone", "bari" -> {
+                var advice = client.baritoneAdvice();
+                client.notify("Baritone: " + advice.summary(), NotificationLevel.INFO);
+                for (String issue : advice.likelyIssues()) {
+                    client.notify("  issue: " + issue, NotificationLevel.INFO);
+                }
+            }
+            case "report" -> {
+                var record = client.crashMonitor().latest();
+                if (record == null) {
+                    client.notify("No crash to report", NotificationLevel.WARN);
+                    return;
+                }
+                var report = client.reportService().queueReport(record,
+                        client.crashAnalyzer().diagnose(record));
+                client.notify(report == null ? "A report for this crash is already queued"
+                        : "Queued report " + report.id(), NotificationLevel.SUCCESS);
+            }
+            case "reports", "queue" -> {
+                var reports = client.reportService().reports();
+                if (reports.isEmpty()) {
+                    client.notify("No reports queued", NotificationLevel.INFO);
+                    return;
+                }
+                for (var report : reports) {
+                    client.notify("  " + report.id() + " \u00B7 " + report.status().label()
+                            + " \u00B7 " + report.fingerprint(), NotificationLevel.INFO);
+                }
+            }
+            case "send" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; ai send <id>", NotificationLevel.WARN);
+                    return;
+                }
+                client.reportService().approveAndSend(args.get(1));
+                client.notify("Sending report " + args.get(1) + "\u2026", NotificationLevel.INFO);
+            }
+            case "mailto" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; ai mailto <id>", NotificationLevel.WARN);
+                    return;
+                }
+                var report = client.reportService().reports().stream()
+                        .filter(r -> r.id().equals(args.get(1))).findFirst().orElse(null);
+                if (report == null) {
+                    client.notify("No such report", NotificationLevel.ERROR);
+                    return;
+                }
+                MinecraftClient.getInstance().keyboard.setClipboard(client.reportService().mailtoLink(report));
+                client.notify("Copied a mailto link to the clipboard", NotificationLevel.SUCCESS);
+            }
+            case "clearreports" -> {
+                client.reportService().clear();
+                client.notify("Cleared the report queue", NotificationLevel.INFO);
+            }
+            case "clearcrashes" -> {
+                client.crashMonitor().clear();
+                client.notify("Cleared the crash history", NotificationLevel.INFO);
+            }
+            default -> client.notify("Usage: ; ai <status|gui|on|off|local|model|crashes|analyse|"
+                    + "baritone|report|reports|send|mailto|clearreports|clearcrashes>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /**
+     * The automation surface: {@code list}, {@code on}, {@code off}, {@code history},
+     * {@code add <name> <trigger> [cond...] -> [action...]}, {@code enable/disable <id>},
+     * {@code remove <id>}. Rules are plain data and every effect goes through the narrow
+     * automation context, so nothing here can run arbitrary code.
+     */
+    private void automation(List<String> args) {
+        var engine = client.automation();
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("status")) {
+            client.notify(engine.summary(), engine.isEnabled()
+                    ? NotificationLevel.SUCCESS : NotificationLevel.INFO);
+            return;
+        }
+        String sub = args.get(0).toLowerCase(java.util.Locale.ROOT);
+        switch (sub) {
+            case "on", "enable" -> {
+                engine.setEnabled(true);
+                client.saveAutomation();
+                client.notify("Automation enabled", NotificationLevel.SUCCESS);
+            }
+            case "off", "disable" -> {
+                engine.setEnabled(false);
+                client.saveAutomation();
+                client.notify("Automation disabled", NotificationLevel.INFO);
+            }
+            case "list", "rules" -> {
+                if (engine.rules().isEmpty()) {
+                    client.notify("No automation rules", NotificationLevel.INFO);
+                    return;
+                }
+                for (var rule : engine.rules()) {
+                    client.notify("  " + rule.id() + " " + rule.describe(), NotificationLevel.INFO);
+                }
+            }
+            case "history" -> {
+                if (engine.history().isEmpty()) {
+                    client.notify("No automation history", NotificationLevel.INFO);
+                    return;
+                }
+                for (var firing : engine.history()) {
+                    client.notify("  " + firing.describe(), NotificationLevel.INFO);
+                }
+            }
+            case "remove", "delete" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; automation remove <id>", NotificationLevel.WARN);
+                    return;
+                }
+                boolean removed = engine.removeRule(args.get(1));
+                client.saveAutomation();
+                client.notify(removed ? "Rule removed" : "No such rule",
+                        removed ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+            }
+            case "toggle" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; automation toggle <id>", NotificationLevel.WARN);
+                    return;
+                }
+                var rule = engine.byId(args.get(1));
+                if (rule.isEmpty()) {
+                    client.notify("No such rule", NotificationLevel.WARN);
+                    return;
+                }
+                rule.get().enabled(!rule.get().enabled());
+                client.saveAutomation();
+                client.notify("Rule " + args.get(1) + (rule.get().enabled() ? " enabled" : " disabled"),
+                        NotificationLevel.SUCCESS);
+            }
+            case "add" -> addAutomation(args);
+            default -> client.notify("Usage: ; automation <status|on|off|list|history|"
+                    + "add|remove|toggle>", NotificationLevel.WARN);
+        }
+    }
+
+    /**
+     * {@code ; automation add <name> <trigger> [cond]... -- [action]...}
+     *
+     * <p>The trigger is a single token ({@code interval:5s}, {@code lowhealth:40},
+     * {@code event:TARGET_CHANGED}). Conditions come before {@code --}, actions after. The
+     * tokenizer already stripped quotes, so a multi-word notify message must be joined by hand.
+     */
+    private void addAutomation(List<String> args) {
+        if (args.size() < 3) {
+            client.notify("Usage: ; automation add <name> <trigger> [cond]... -- [action]...",
+                    NotificationLevel.WARN);
+            return;
+        }
+        String name = args.get(1);
+        try {
+            var rule = new com.logvex.crystal.automation.AutomationRule(
+                    "rule-" + System.currentTimeMillis(), name);
+            rule.trigger(com.logvex.crystal.automation.Trigger.parse(args.get(2)));
+            int separator = args.indexOf("--");
+            List<String> conditionTokens = separator < 0
+                    ? args.subList(3, args.size()) : args.subList(3, separator);
+            List<String> actionTokens = separator < 0
+                    ? List.of() : args.subList(separator + 1, args.size());
+            for (String token : conditionTokens) {
+                rule.addCondition(com.logvex.crystal.automation.Condition.parse(token));
+            }
+            for (String token : actionTokens) {
+                rule.addAction(com.logvex.crystal.automation.Action.parse(token));
+            }
+            if (rule.actions().isEmpty()) {
+                client.notify("A rule needs at least one action after '--'", NotificationLevel.WARN);
+                return;
+            }
+            client.automation().addRule(rule);
+            client.saveAutomation();
+            client.notify("Added rule " + rule.id() + ": " + rule.describe(), NotificationLevel.SUCCESS);
+        } catch (RuntimeException e) {
+            client.notify("Could not parse rule: " + e.getMessage(), NotificationLevel.ERROR);
+        }
+    }
+
+    /**
+     * The extension surface: {@code list}, {@code enable <id>}, {@code disable <id>},
+     * {@code reload}. Enabling requires explicit user approval - a discovered extension is
+     * never activated automatically.
+     */
+    private void extensions(List<String> args) {
+        var manager = client.extensions();
+        if (manager == null) {
+            client.notify("Extension system unavailable", NotificationLevel.WARN);
+            return;
+        }
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("list")) {
+            if (manager.installed().isEmpty()) {
+                client.notify("No extensions found (see docs/extension-development.md)",
+                        NotificationLevel.INFO);
+                return;
+            }
+            for (var ext : manager.installed()) {
+                client.notify("  " + ext.summary(), ext.loaded()
+                        ? NotificationLevel.SUCCESS : NotificationLevel.INFO);
+            }
+            return;
+        }
+        String sub = args.get(0).toLowerCase(Locale.ROOT);
+        if (args.size() < 2 && (sub.equals("enable") || sub.equals("disable") || sub.equals("reload"))) {
+            client.notify("Usage: ; extensions " + sub + " <id>", NotificationLevel.WARN);
+            return;
+        }
+        String id = args.size() >= 2 ? args.get(1) : "";
+        switch (sub) {
+            case "enable" -> client.notify(manager.enable(id)
+                    ? "Enabled " + id : "Could not enable " + id,
+                    manager.isEnabled(id) ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+            case "disable" -> client.notify(manager.disable(id)
+                    ? "Disabled " + id : "Could not disable " + id,
+                    manager.isEnabled(id) ? NotificationLevel.WARN : NotificationLevel.SUCCESS);
+            case "reload" -> {
+                manager.reload();
+                client.notify("Rescanned extensions", NotificationLevel.INFO);
+            }
+            default -> client.notify("Usage: ; extensions <list|enable|disable|reload>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /** Explains the scripting decision honestly: not implemented, and why. */
+    private void scripts() {
+        client.notify("Scripting is not implemented in this build.", NotificationLevel.INFO);
+        client.notify("  Reason: no maintained embedded runtime can enforce the CPU/memory "
+                + "limits required to run user code safely. See docs/scripting.md.",
+                NotificationLevel.INFO);
     }
 
     /** Runs the Diagnostics module's report, enabling it first when necessary. */
@@ -1232,10 +1909,12 @@ public final class CommandManager {
                 "; profile <list|save|load|delete|starters|gui> [name]",
                 "; favorite <module>",
                 "; waypoint <add|remove|list|clear> [name] [x y z]",
+                "; baritone <status|gui|goto <x y z>|near <x y z> [r]|wp <name>|here|cancel|pause|resume|paused|set|settings>",
                 "; world | entities <list|count|search <text>> | browser",
                 "; notifications <list|history|clear|sound|duration|scale|position|duplicates|level|test>",
                 "; context <on|off|list|add|remove|clear|cooldown>",
                 "; friend <add|remove|list> [name]",
+                "; ai <status|gui|on|off|local|model|crashes|analyse|baritone|report|reports|send|mailto>",
                 "; crystal | save | load | list [category] | errors [clear] | assets [list|reload] | version"
         }) {
             client.notify(line, NotificationLevel.INFO);

@@ -36,6 +36,25 @@ public final class ModuleManager {
         }
     }
 
+    /**
+     * Unregisters a module by name, disabling it first. Used by the extension API to release
+     * a module an owner registered. Returns the removed module, or null when none matched.
+     */
+    public Module remove(String name) {
+        if (name == null) {
+            return null;
+        }
+        Module module = modules.remove(name.toLowerCase());
+        if (module == null) {
+            return null;
+        }
+        if (module.isEnabled()) {
+            module.disable();
+        }
+        ordered.remove(module);
+        return module;
+    }
+
     public Module byName(String name) {
         return name == null ? null : modules.get(name.toLowerCase());
     }

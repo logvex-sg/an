@@ -80,6 +80,8 @@ All commands are local-only. Prefix `;` or `.crystal`.
 | `; keybinds` | Open the keybind editor |
 | `; profile <list\|save\|overwrite\|load\|delete\|starters\|gui>` | Manage configuration profiles |
 | `; favorite <module>` | Star/unstar a module |
+| `; ai <status\|gui\|on\|off\|local\|model\|crashes\|analyse\|baritone\|report\|reports\|send\|mailto>` | Optional local AI assistant |
+| `; center <status\|perf\|compat [module]\|actions\|run <id>\|save\|reload>` | Unified status, compatibility and performance hub |
 | `; toggle <module>` | Enable/disable a module |
 | `; bind <module> <key>` | Set a module keybind |
 | `; set <module> <setting> <value>` | Change any module setting |
@@ -207,6 +209,31 @@ moved aside (`*.json.corrupt`) rather than silently dropped; a profile written b
 build is refused rather than misread. Export documents use the `.export.json` suffix and are
 kept out of the profile list.
 
+## Optional local AI assistant
+
+An opt-in mini-AI (`AIAssistant` module, `; ai` command, `; ai gui` screen) that runs entirely
+on your machine. It never sends anything anywhere on its own: a local model is only loaded
+when you explicitly ask for an analysis, and a bug report is only ever sent when you approve
+it. Disabled by default; the deterministic parts (crash classification, Baritone diagnostics,
+report building) work with no model at all.
+
+* **Crash intelligence:** an uncaught-exception hook fingerprints and classifies a crash, the
+  deterministic `CrashAnalyzer` always explains it, and the local model can optionally add a
+  one-paragraph note (clearly labelled as model-generated; the confirmed facts and fixes stay
+  authoritative).
+* **Baritone diagnostics:** a deterministic advisor plus an optional model note, both driven
+  from the privacy-filtered Baritone status.
+* **Reports:** a prepared report is built from a privacy-filtered summary, queued locally and
+  only sent after you approve it (by SMTP, or as a `mailto:` link). Every field is redacted
+  first — home paths, IPs, coordinates, tokens and configured names never leave the machine.
+* **Models:** a small, permissively-licensed catalogue; a model is downloaded on demand,
+  verified, and unloaded after an idle timeout.
+
+The subsystem respects the spec's resource limits: inference runs on one or two daemon threads
+with a bounded queue, never on the game thread, and a request is dropped rather than queued
+without limit. All preferences persist to `ai.json`. The Phase 7 design, model evaluation,
+privacy, performance and testing write-ups live in [`docs/ai/`](docs/ai/).
+
 ## Player cosmetics
 
 An optional, purely decorative set of accessories drawn on players: **cat ears**, **cat ears
@@ -250,6 +277,10 @@ Written under `<game>/config/logvex-crystal/`:
 | `friends.json` | Friend list |
 | `waypoints.json` | Saved waypoints |
 | `favorites.json` | Favourite modules and recently-used list |
+| `ai.json` | Mini-AI preferences (model, limits, redactions, SMTP) |
+| `ai/crashes.json` | Persisted crash history |
+| `ai/reports.json` | Queued bug reports |
+| `ai/models/*.gguf` | Downloaded local models |
 | `profiles/*.json` | Named configuration profiles |
 
 All stores are schema-versioned, written atomically, skip malformed entries on load, and
@@ -263,9 +294,10 @@ src/main/java/com/logvex/crystal/
   module/     feature modules by category (combat, movement, player, world, render, hud, misc)
   render/     drawing helpers, screen projection, world-space ESP
   world/      cached block-entity snapshot, world readouts and block scanning
-  gui/        ClickGUI, HUD manager, HUD editor, keybind editor, profile manager
+  gui/        ClickGUI, HUD manager, HUD editor, keybind editor, profile manager, AI assistant
   assets/     asset manifest, lazy texture registry and fallback draw helpers
   theme/      presets, settings, engine, immutable palette
+  ai/         optional mini-AI: crash intelligence, Baritone advice, reports, local models
   config/     JSON stores, configuration profiles, favourites, starters
   mixin/      keyboard keybind dispatch, splash/title tweaks
   combat/     crystal damage model and target tracking
