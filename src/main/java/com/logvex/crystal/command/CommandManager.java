@@ -88,7 +88,7 @@ public final class CommandManager {
             "fav", "recent", "appearance", "appear", "keybinds", "keys", "profile", "profiles",
             "favorite", "favourite", "save", "load", "reload", "list", "modules", "errors",
             "diagnostics", "conflicts", "coord", "automation", "auto", "diag", "crystal", "ac",
-            "assets", "version", "ver", "extensions", "ext", "scripts", "script");
+            "assets", "version", "ver", "extensions", "ext", "scripts", "script", "ai");
 
     /**
      * Handles a raw chat line. Returns true when the line was a Crystal command and must
@@ -200,6 +200,7 @@ public final class CommandManager {
             case "errors", "diagnostics" -> errors(args);
             case "conflicts", "coord" -> conflicts(args);
             case "automation", "auto" -> automation(args);
+            case "ai" -> ai(args);
             case "extensions", "ext" -> extensions(args);
             case "scripts", "script" -> scripts();
             case "diag" -> diagnostics();
@@ -1397,6 +1398,163 @@ public final class CommandManager {
     }
 
     /**
+     * The {@code ; ai} command: a single surface for the optional mini-AI subsystem.
+     *
+     * <p>Subcommands: {@code status, gui, enable/on, disable/off, local <on|off>, model [id],
+     * crashes, analyse, baritone, report, reports, send <id>, clearreports, mailto <id>}.
+     * Nothing here loads a model, downloads a file or sends an email on its own: those happen
+     * only through an explicit subcommand.
+     */
+    private void ai(List<String> args) {
+        var settings = client.aiSettings();
+        var ai = client.ai();
+        if (args.isEmpty() || args.get(0).equalsIgnoreCase("status")) {
+            client.notify("AI: " + (settings.enabled ? "enabled" : "disabled")
+                    + " \u00B7 local analysis " + (settings.localAnalysis ? "on" : "off")
+                    + " \u00B7 email " + (settings.emailEnabled ? "on" : "off"), NotificationLevel.INFO);
+            if (ai != null) {
+                client.notify("  model " + ai.currentSpec().displayName() + " \u00B7 " + ai.state().label()
+                        + " \u00B7 queue " + ai.queueDepth() + "/" + ai.queueLimit(), NotificationLevel.INFO);
+            }
+            client.notify("  crashes captured: " + client.crashMonitor().size()
+                    + " \u00B7 reports queued: " + client.reportService().reports().size(), NotificationLevel.INFO);
+            return;
+        }
+        switch (args.get(0).toLowerCase(Locale.ROOT)) {
+            case "gui", "screen", "open" -> {
+                if (ScreenGuard.fontsReady()) {
+                    MinecraftClient.getInstance().setScreen(
+                            new com.logvex.crystal.gui.AIAssistantScreen(client.theme(), client));
+                }
+            }
+            case "on", "enable" -> {
+                settings.enabled = true;
+                client.applyAiSettings();
+                client.notify("AI assistant enabled", NotificationLevel.SUCCESS);
+            }
+            case "off", "disable" -> {
+                settings.enabled = false;
+                client.applyAiSettings();
+                client.notify("AI assistant disabled", NotificationLevel.INFO);
+            }
+            case "local", "analysis" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; ai local <on|off>", NotificationLevel.WARN);
+                    return;
+                }
+                boolean on = args.get(1).equalsIgnoreCase("on") || args.get(1).equalsIgnoreCase("true");
+                settings.localAnalysis = on;
+                client.applyAiSettings();
+                client.notify("Local analysis " + (on ? "enabled" : "disabled"), NotificationLevel.INFO);
+            }
+            case "model" -> {
+                if (args.size() < 2) {
+                    for (var spec : com.logvex.crystal.ai.model.ModelCatalog.all()) {
+                        boolean installed = ai != null && ai.loader().isInstalled(spec);
+                        client.notify("  " + spec.id() + " \u00B7 " + spec.displayName()
+                                + (installed ? " (installed)" : ""), NotificationLevel.INFO);
+                    }
+                    return;
+                }
+                var chosen = com.logvex.crystal.ai.model.ModelCatalog.byId(args.get(1));
+                if (chosen.isEmpty()) {
+                    client.notify("No such model: " + args.get(1), NotificationLevel.ERROR);
+                    return;
+                }
+                settings.modelId = chosen.get().id();
+                client.applyAiSettings();
+                client.notify("Model set to " + chosen.get().displayName(), NotificationLevel.SUCCESS);
+            }
+            case "crashes", "history" -> {
+                var history = client.crashMonitor().history();
+                if (history.isEmpty()) {
+                    client.notify("No crashes captured \u2661", NotificationLevel.INFO);
+                    return;
+                }
+                for (var record : history) {
+                    client.notify("  " + record.category().label() + " \u00B7 " + record.severity().label()
+                            + " \u00B7 " + record.fingerprint(), NotificationLevel.INFO);
+                }
+            }
+            case "analyse", "analyze" -> {
+                var record = client.crashMonitor().latest();
+                if (record == null) {
+                    client.notify("No crash to analyse", NotificationLevel.WARN);
+                    return;
+                }
+                var diagnosis = client.crashAnalyzer().diagnose(record);
+                client.notify("Cause (" + diagnosis.confidence().label() + "): " + diagnosis.likelyCause(),
+                        NotificationLevel.INFO);
+                for (String fix : diagnosis.suggestedFixes()) {
+                    client.notify("  fix: " + fix, NotificationLevel.INFO);
+                }
+            }
+            case "baritone", "bari" -> {
+                var advice = client.baritoneAdvice();
+                client.notify("Baritone: " + advice.summary(), NotificationLevel.INFO);
+                for (String issue : advice.likelyIssues()) {
+                    client.notify("  issue: " + issue, NotificationLevel.INFO);
+                }
+            }
+            case "report" -> {
+                var record = client.crashMonitor().latest();
+                if (record == null) {
+                    client.notify("No crash to report", NotificationLevel.WARN);
+                    return;
+                }
+                var report = client.reportService().queueReport(record,
+                        client.crashAnalyzer().diagnose(record));
+                client.notify(report == null ? "A report for this crash is already queued"
+                        : "Queued report " + report.id(), NotificationLevel.SUCCESS);
+            }
+            case "reports", "queue" -> {
+                var reports = client.reportService().reports();
+                if (reports.isEmpty()) {
+                    client.notify("No reports queued", NotificationLevel.INFO);
+                    return;
+                }
+                for (var report : reports) {
+                    client.notify("  " + report.id() + " \u00B7 " + report.status().label()
+                            + " \u00B7 " + report.fingerprint(), NotificationLevel.INFO);
+                }
+            }
+            case "send" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; ai send <id>", NotificationLevel.WARN);
+                    return;
+                }
+                client.reportService().approveAndSend(args.get(1));
+                client.notify("Sending report " + args.get(1) + "\u2026", NotificationLevel.INFO);
+            }
+            case "mailto" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; ai mailto <id>", NotificationLevel.WARN);
+                    return;
+                }
+                var report = client.reportService().reports().stream()
+                        .filter(r -> r.id().equals(args.get(1))).findFirst().orElse(null);
+                if (report == null) {
+                    client.notify("No such report", NotificationLevel.ERROR);
+                    return;
+                }
+                MinecraftClient.getInstance().keyboard.setClipboard(client.reportService().mailtoLink(report));
+                client.notify("Copied a mailto link to the clipboard", NotificationLevel.SUCCESS);
+            }
+            case "clearreports" -> {
+                client.reportService().clear();
+                client.notify("Cleared the report queue", NotificationLevel.INFO);
+            }
+            case "clearcrashes" -> {
+                client.crashMonitor().clear();
+                client.notify("Cleared the crash history", NotificationLevel.INFO);
+            }
+            default -> client.notify("Usage: ; ai <status|gui|on|off|local|model|crashes|analyse|"
+                    + "baritone|report|reports|send|mailto|clearreports|clearcrashes>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /**
      * The automation surface: {@code list}, {@code on}, {@code off}, {@code history},
      * {@code add <name> <trigger> [cond...] -> [action...]}, {@code enable/disable <id>},
      * {@code remove <id>}. Rules are plain data and every effect goes through the narrow
@@ -1643,6 +1801,7 @@ public final class CommandManager {
                 "; notifications <list|history|clear|sound|duration|scale|position|duplicates|level|test>",
                 "; context <on|off|list|add|remove|clear|cooldown>",
                 "; friend <add|remove|list> [name]",
+                "; ai <status|gui|on|off|local|model|crashes|analyse|baritone|report|reports|send|mailto>",
                 "; crystal | save | load | list [category] | errors [clear] | assets [list|reload] | version"
         }) {
             client.notify(line, NotificationLevel.INFO);

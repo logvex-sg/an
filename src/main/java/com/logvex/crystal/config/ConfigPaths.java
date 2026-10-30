@@ -59,4 +59,29 @@ public final class ConfigPaths {
     public static Path profiles() {
         return directory().resolve("profiles");
     }
+
+    /** Phase 7 mini-AI preferences. */
+    public static Path ai() {
+        return directory().resolve("ai.json");
+    }
+
+    /** Directory holding optional local models and the crash/report stores. */
+    public static Path aiDirectory() {
+        return directory().resolve("ai");
+    }
+
+    /** Persisted crash history (crash intelligence). */
+    public static Path aiCrashes() {
+        return aiDirectory().resolve("crashes.json");
+    }
+
+    /** Persisted queue of prepared bug reports. */
+    public static Path aiReports() {
+        return aiDirectory().resolve("reports.json");
+    }
+
+    /** Directory holding downloaded local model files. */
+    public static Path aiModels() {
+        return aiDirectory().resolve("models");
+    }
 }

@@ -59,7 +59,7 @@ import com.logvex.crystal.module.render.TracersModule;
 public final class ModuleRegistry {
 
     /** Number of concrete modules registered; asserted by the registry test. */
-    public static final int EXPECTED_MODULE_COUNT = 68;
+    public static final int EXPECTED_MODULE_COUNT = 69;
 
     private ModuleRegistry() {
     }
@@ -138,6 +138,7 @@ public final class ModuleRegistry {
         manager.register(new com.logvex.crystal.module.misc.BaritoneModule());
         manager.register(new com.logvex.crystal.module.render.BaritoneRouteModule());
         manager.register(new com.logvex.crystal.module.player.DurabilityAlertModule());
+        manager.register(new com.logvex.crystal.module.misc.AIAssistantModule());
 
         // World inspection.
         manager.register(new com.logvex.crystal.module.world.WorldInfoModule());

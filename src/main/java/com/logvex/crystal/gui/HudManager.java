@@ -95,6 +95,9 @@ public final class HudManager {
         // The Baritone readout is opt-in: the Baritone module reveals it, so it starts hidden
         // rather than occupying HUD space for players who do not use Baritone.
         layout.entry(com.logvex.crystal.gui.hud.BaritoneHudElement.ID).visible = false;
+        register(new com.logvex.crystal.gui.hud.AIHudElement());
+        // The AI readout is opt-in too: the AIAssistant module reveals it.
+        layout.entry(com.logvex.crystal.gui.hud.AIHudElement.ID).visible = false;
     }
 
     private static String pingText(int ping) {

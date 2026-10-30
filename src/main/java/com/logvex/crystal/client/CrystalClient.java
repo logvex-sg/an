@@ -117,6 +117,30 @@ public final class CrystalClient implements ClientModInitializer {
     private com.logvex.crystal.extension.ExtensionManager extensionManager;
     private com.logvex.crystal.extension.ExtensionPreferences extensionPreferences;
 
+    // ---- Phase 7: optional mini-AI (crash intelligence, local model, reports) ----
+    /** The shared mini-AI preferences, persisted to {@code ai.json}. */
+    private final com.logvex.crystal.ai.AISettings aiSettings = new com.logvex.crystal.ai.AISettings();
+    private com.logvex.crystal.config.AISettingsStore aiSettingsStore;
+    /** The crash registry; capture is wired through the uncaught-exception handler. */
+    private final com.logvex.crystal.ai.crash.CrashMonitor crashMonitor =
+            new com.logvex.crystal.ai.crash.CrashMonitor(50);
+    private com.logvex.crystal.ai.crash.CrashStore crashStore;
+    /** Deterministic crash analysis plus optional model enhancement. */
+    private final com.logvex.crystal.ai.crash.CrashAnalyzerService crashAnalyzer =
+            new com.logvex.crystal.ai.crash.CrashAnalyzerService();
+    private com.logvex.crystal.ai.MiniAIManager ai;
+    private com.logvex.crystal.ai.AiPromptBuilder aiPrompts;
+    private com.logvex.crystal.ai.report.BugReportQueue reportQueue;
+    private com.logvex.crystal.ai.report.ReportService reportService;
+    /** Bounded ring of recent client events attached to a captured crash. */
+    private final com.logvex.crystal.ai.context.DiagnosticContext aiContext =
+            new com.logvex.crystal.ai.context.DiagnosticContext(64);
+    private com.logvex.crystal.ai.crash.CrashCapture aiCapture;
+    private volatile com.logvex.crystal.ai.baritone.BaritoneAdvice baritoneAdvice =
+            com.logvex.crystal.ai.baritone.BaritoneAdvice.unavailable("not yet evaluated");
+    private com.logvex.crystal.event.ClientEventBus.Subscription aiEventSubscription;
+    private long lastBaritoneAdviceMillis;
+
     private boolean wasInWorld;
     private String lastDimension = "";
     private AutoSave autoSave;
@@ -294,6 +318,8 @@ public final class CrystalClient implements ClientModInitializer {
             LOG.info("Re-enabled {} approved extension(s)", autoEnabled);
         }
 
+        bootstrapAi();
+
         registerKeybind();
         registerCosmetics();
         registerCallbacks();
@@ -337,6 +363,119 @@ public final class CrystalClient implements ClientModInitializer {
         } catch (Throwable t) {
             LOG.warn("Extension shutdown failed", t);
         }
+        try {
+            if (aiEventSubscription != null) {
+                aiEventSubscription.close();
+            }
+            if (reportService != null) {
+                reportService.close();
+            }
+            if (ai != null) {
+                ai.close();
+            }
+        } catch (Throwable t) {
+            LOG.warn("AI shutdown failed", t);
+        }
+    }
+
+    /**
+     * Builds the optional mini-AI subsystem: preferences, the crash registry (with an uncaught
+     * exception handler), the local model manager, the report queue and the report service.
+     *
+     * <p>Everything here is inert until the user enables it. Loading {@code ai.json} sets the
+     * model choice and feature flags; no model is loaded and no network call is made at startup.
+     */
+    private void bootstrapAi() {
+        aiSettingsStore = new com.logvex.crystal.config.AISettingsStore(ConfigPaths.ai());
+        loadingConfig = true;
+        try {
+            aiSettingsStore.loadInto(aiSettings);
+        } finally {
+            loadingConfig = false;
+        }
+        crashStore = new com.logvex.crystal.ai.crash.CrashStore(ConfigPaths.aiCrashes());
+        if (aiSettings.keepLocalHistory) {
+            for (com.logvex.crystal.ai.crash.CrashRecord record : crashStore.load()) {
+                crashMonitor.record(record);
+            }
+        }
+        aiPrompts = new com.logvex.crystal.ai.AiPromptBuilder(new com.logvex.crystal.ai.privacy.PrivacyFilter());
+        ai = new com.logvex.crystal.ai.MiniAIManager(ConfigPaths.aiModels(), aiSettings);
+        reportQueue = new com.logvex.crystal.ai.report.BugReportQueue(ConfigPaths.aiReports(), 64);
+        reportService = new com.logvex.crystal.ai.report.ReportService(aiSettings, reportQueue,
+                new com.logvex.crystal.ai.report.BugReportBuilder(new com.logvex.crystal.ai.privacy.PrivacyFilter(),
+                        aiSettings), message -> notifications.cute(message));
+        aiContext.setSnapshot(new com.logvex.crystal.ai.context.DiagnosticContext.Snapshot(
+                modVersion(), MinecraftClient.getInstance().getGameVersion(), loaderVersion(),
+                System.getProperty("java.version", "unknown"), System.getProperty("os.name", "unknown"),
+                baritoneReportSummary(), aiStatusText()));
+        aiCapture = new com.logvex.crystal.ai.crash.CrashCapture(crashMonitor, aiContext,
+                () -> aiSettings.crashDetection, this::baritoneReportSummary, this::aiStatusText);
+        aiCapture.install();
+        crashMonitor.addListener(this::onCrashCaptured);
+        // Mirror the client's own event feed into the diagnostic ring, so a report carries the
+        // last few things that happened without reading any log file.
+        aiEventSubscription = events.subscribe(event -> aiContext.record(event.kind() + ": " + event.detail()));
+        LOG.info("Mini-AI ready (enabled={}, localAnalysis={}, email={})",
+                aiSettings.enabled, aiSettings.localAnalysis, aiSettings.emailEnabled);
+    }
+
+    /** A privacy-safe one-line Baritone summary for a crash record (types only, no coordinates). */
+    private String baritoneReportSummary() {
+        return com.logvex.crystal.ai.baritone.BaritoneAssistant.reportSummary(
+                baritone.status(), baritone.lastActionError());
+    }
+
+    /**
+     * The mini-AI per-tick work: advance the model manager's idle-unload clock and refresh the
+     * cached Baritone advice at a low rate. Both are cheap; the model's heavy work happens on its
+     * own worker thread, so the game thread is never blocked.
+     */
+    private void tickAi(MinecraftClient client) {
+        if (ai == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        ai.tick(now);
+        if (now - lastBaritoneAdviceMillis >= 1000) {
+            lastBaritoneAdviceMillis = now;
+            baritoneAdvice = com.logvex.crystal.ai.baritone.BaritoneAssistant.advise(
+                    baritone.status(), baritone.history(), baritone.lastActionError(), baritone.paused());
+        }
+    }
+
+    /** Called on the monitor's thread when a genuinely new crash is recorded. */
+    private void onCrashCaptured(com.logvex.crystal.ai.crash.CrashRecord record) {
+        if (!aiSettings.crashDetection) {
+            return;
+        }
+        try {
+            crashStore.save(crashMonitor.history());
+        } catch (IOException e) {
+            LOG.warn("Could not persist the crash history", e);
+        }
+        com.logvex.crystal.ai.crash.Diagnosis diagnosis = crashAnalyzer.diagnose(record);
+        if (aiSettings.reportQueue) {
+            reportService.onCrash(record, diagnosis);
+        }
+        if (aiSettings.localAnalysis) {
+            ai.submitOnce("crash:" + record.fingerprint(), aiPrompts.crashPrompt(record, diagnosis),
+                    text -> crashAnalyzer.enhance(record.fingerprint(), text));
+        }
+    }
+
+    /** A short, privacy-safe description of the AI subsystem for a crash record. */
+    private String aiStatusText() {
+        if (ai == null) {
+            return "not initialised";
+        }
+        return ai.state().label() + ", queue " + ai.queueDepth() + "/" + ai.queueLimit();
+    }
+
+    private static String loaderVersion() {
+        return net.fabricmc.loader.api.FabricLoader.getInstance().getModContainer("fabricloader")
+                .map(container -> container.getMetadata().getVersion().getFriendlyString())
+                .orElse("unknown");
     }
 
     private void registerKeybind() {
@@ -450,6 +589,7 @@ public final class CrystalClient implements ClientModInitializer {
             modules.tickAll();
             actionCoordinator.tick(System.currentTimeMillis());
             eventFeed.tick(client);
+            tickAi(client);
             automation.tick(automationContext, System.currentTimeMillis());
             notifications.prune();
             cosmetics.tick(client);
@@ -897,6 +1037,9 @@ public final class CrystalClient implements ClientModInitializer {
             favoritesStore.save();
             notificationStore.save(notifications.settings());
             contextStore.save(contextProfiles);
+            if (aiSettingsStore != null) {
+                aiSettingsStore.save(aiSettings);
+            }
         } catch (IOException e) {
             LOG.warn("Failed to save configuration", e);
         }
@@ -914,10 +1057,20 @@ public final class CrystalClient implements ClientModInitializer {
             waypoints.load();
             notificationStore.loadInto(notifications.settings());
             contextStore.loadInto(contextProfiles);
+            if (aiSettingsStore != null) {
+                aiSettingsStore.loadInto(aiSettings);
+            }
         } finally {
             loadingConfig = false;
         }
         applyHudVisibility();
+        if (ai != null) {
+            ai.reconfigure();
+        }
+        var aiModule = modules.byClass(com.logvex.crystal.module.misc.AIAssistantModule.class);
+        if (aiModule != null) {
+            aiModule.syncFromSettings();
+        }
     }
 
     /**
@@ -935,6 +1088,11 @@ public final class CrystalClient implements ClientModInitializer {
             if (module instanceof com.logvex.crystal.module.hud.HudToggleModule toggle) {
                 hud.setElementVisible(toggle.elementId(), module.isEnabled());
             }
+        }
+        // The AI HUD element is owned by the AIAssistant module, which is not a HudToggleModule.
+        var aiModule = modules.byClass(com.logvex.crystal.module.misc.AIAssistantModule.class);
+        if (aiModule != null) {
+            hud.setElementVisible(com.logvex.crystal.gui.hud.AIHudElement.ID, aiModule.isEnabled());
         }
     }
 
@@ -1115,5 +1273,101 @@ public final class CrystalClient implements ClientModInitializer {
 
     public void notify(String message, NotificationLevel level) {
         notifications.notify(message, level);
+    }
+
+    // ------------------------------------------------------------ mini-AI accessors
+
+    /** The shared mini-AI preferences. */
+    public com.logvex.crystal.ai.AISettings aiSettings() {
+        return aiSettings;
+    }
+
+    /** Persists the mini-AI preferences immediately (used by the settings UI). */
+    public void saveAiSettings() {
+        if (aiSettingsStore == null) {
+            return;
+        }
+        try {
+            aiSettingsStore.save(aiSettings);
+        } catch (IOException e) {
+            LOG.warn("Could not save ai.json", e);
+        }
+    }
+
+    /** The local model manager (never null once bootstrap has run). */
+    public com.logvex.crystal.ai.MiniAIManager ai() {
+        return ai;
+    }
+
+    /** The crash registry. */
+    public com.logvex.crystal.ai.crash.CrashMonitor crashMonitor() {
+        return crashMonitor;
+    }
+
+    /** Deterministic crash analysis, with optional model enhancement. */
+    public com.logvex.crystal.ai.crash.CrashAnalyzerService crashAnalyzer() {
+        return crashAnalyzer;
+    }
+
+    /** The report pipeline (queue, approval, send). */
+    public com.logvex.crystal.ai.report.ReportService reportService() {
+        return reportService;
+    }
+
+    /** The latest cached Baritone advice (refreshed at most once a second). */
+    public com.logvex.crystal.ai.baritone.BaritoneAdvice baritoneAdvice() {
+        return baritoneAdvice;
+    }
+
+    /**
+     * Re-reads the AI preferences after a change and persists them. Called by the AIAssistant
+     * module whenever a setting changes, so a change takes effect immediately and survives a
+     * restart.
+     */
+    public void applyAiSettings() {
+        if (ai != null) {
+            ai.reconfigure();
+        }
+        saveAiSettings();
+    }
+
+    /** Asks the local model to explain a crash, if local analysis is enabled. */
+    public void askAiAboutCrash(com.logvex.crystal.ai.crash.CrashRecord record,
+                                com.logvex.crystal.ai.crash.Diagnosis diagnosis) {
+        if (ai == null || !aiSettings.localAnalysis) {
+            return;
+        }
+        ai.submitOnce("crash:" + record.fingerprint(), aiPrompts.crashPrompt(record, diagnosis),
+                text -> crashAnalyzer.enhance(record.fingerprint(), text));
+    }
+
+    /** Asks the local model for Baritone suggestions, if local analysis is enabled. */
+    public void askAiAboutBaritone() {
+        if (ai == null || !aiSettings.localAnalysis) {
+            return;
+        }
+        com.logvex.crystal.integration.baritone.BaritoneStatus status = baritone.status();
+        ai.submitOnce("baritone:" + status.stateKey(),
+                aiPrompts.baritonePrompt(status, baritone.lastActionError()),
+                text -> LOG.info("Baritone AI suggestion: {}", text));
+    }
+
+    /** Downloads the given model in the background, reporting progress through notifications. */
+    public void downloadModel(com.logvex.crystal.ai.model.ModelSpec spec) {
+        if (ai == null || spec == null) {
+            return;
+        }
+        Thread worker = new Thread(() -> {
+            try {
+                ai.loader().download(spec, (received, total) -> {
+                    // Progress is coarse on purpose: no per-chunk chat spam.
+                });
+                notifications.success(spec.displayName() + " downloaded \u2661");
+            } catch (IOException | RuntimeException e) {
+                notifications.error("Download failed: " + e.getMessage());
+            }
+        }, "logvex-model-download");
+        worker.setDaemon(true);
+        worker.start();
     }
 }

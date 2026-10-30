@@ -1,7 +1,7 @@
 # LOGVEX CRYSTAL — Extension API (Phase 4)
 
 > Verified against the source tree on branch `feat/femboy-product-depth`. Build result:
-> **BUILD SUCCESSFUL, 481 tests, 0 failures** (64 test classes, 258 main classes, 68
+> **BUILD SUCCESSFUL, 581 tests, 0 failures** (75 test classes, 293 main classes, 69
 > registered modules). The API package is `com.logvex.crystal.api`; the lifecycle is
 > `com.logvex.crystal.extension`.
 

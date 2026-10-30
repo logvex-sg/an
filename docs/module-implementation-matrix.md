@@ -1,7 +1,7 @@
 # LOGVEX CRYSTAL - Module Implementation Matrix
 
-> 68 registered modules (`ModuleRegistry.EXPECTED_MODULE_COUNT`, asserted by
-> `ModuleRegistryTest`). Generated from the source at commit `49b84bd`.
+> 69 registered modules (`ModuleRegistry.EXPECTED_MODULE_COUNT`, asserted by
+> `ModuleRegistryTest`). Generated from the source at commit `5da1ad7`.
 >
 > **Status key**
 > - **Verified** - real implementation wired into the tick/render path; pure logic has unit
@@ -110,6 +110,7 @@
 | ChestLogger | `misc/ChestLoggerModule.java` | 10 | - | - | Counts chests in loaded chunks and clusters them locally. |
 | Diagnostics | `misc/DiagnosticsModule.java` | 3 | - | - | Reports client health: errors, files, performance, version. |
 | Baritone | `misc/BaritoneModule.java` | 2 | - | - | Baritone navigation diagnostics, controls and HUD readout. Optional: works without Baritone. |
+| AIAssistant | `misc/AIAssistantModule.java` | 21 | - | - | Optional local AI: crash intelligence, Baritone help and bug reports. |
 
 ### Player
 
