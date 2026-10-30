@@ -1,7 +1,7 @@
 # LOGVEX CRYSTAL - Module Implementation Matrix
 
-> 66 registered modules (`ModuleRegistry.EXPECTED_MODULE_COUNT`, asserted by
-> `ModuleRegistryTest`). Generated from the source at commit `984b3f8`.
+> 68 registered modules (`ModuleRegistry.EXPECTED_MODULE_COUNT`, asserted by
+> `ModuleRegistryTest`). Generated from the source at commit `49b84bd`.
 >
 > **Status key**
 > - **Verified** - real implementation wired into the tick/render path; pure logic has unit
@@ -74,6 +74,7 @@
 | PortalEsp | `render/PortalEspModule.java` | 4 | - | - | Highlights nether portal blocks. |
 | BlockEsp | `render/BlockEspModule.java` | 5 | - | - | Highlights blocks matching a name fragment. |
 | PlayerCosmetics | `render/PlayerCosmeticsModule.java` | 3 | - | - | Optional pastel accessories on players. |
+| BaritoneRoute | `render/BaritoneRouteModule.java` | 2 | - | - | Marks the active Baritone goal in the world (beam + distance label). |
 
 ### HUD
 
@@ -108,6 +109,7 @@
 | HudEditor | `misc/HudEditorModule.java` | 0 | - | - | Open the drag-and-drop HUD layout editor. |
 | ChestLogger | `misc/ChestLoggerModule.java` | 10 | - | - | Counts chests in loaded chunks and clusters them locally. |
 | Diagnostics | `misc/DiagnosticsModule.java` | 3 | - | - | Reports client health: errors, files, performance, version. |
+| Baritone | `misc/BaritoneModule.java` | 2 | - | - | Baritone navigation diagnostics, controls and HUD readout. Optional: works without Baritone. |
 
 ### Player
 

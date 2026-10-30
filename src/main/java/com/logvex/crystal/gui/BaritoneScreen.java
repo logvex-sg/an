@@ -14,6 +14,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.input.CharInput;
 import net.minecraft.client.input.KeyInput;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
@@ -38,6 +39,12 @@ public final class BaritoneScreen extends Screen {
     private boolean showSettings;
     private String status = "";
     private long statusAt;
+
+    // Settings-editing state: the selected setting row and the text being typed into it.
+    private static final int SETTINGS_ROW_H = 14;
+    private String editName;
+    private String editValue;
+    private int settingsScroll;
 
     // Hit boxes captured during render so clicks stay in step with what was drawn.
     private int btnGotoX;
@@ -111,9 +118,11 @@ public final class BaritoneScreen extends Screen {
         btnCancelY = by;
         btnCancelW = 62;
         bx += btnCancelW + 6;
+        // Pause toggles to Resume based on the live paused state, so one button expresses both.
+        boolean paused = snapshot.paused();
         btnPauseX = bx;
         btnPauseY = by;
-        btnPauseW = 58;
+        btnPauseW = 64;
         bx += btnPauseW + 6;
         btnSettingsX = bx;
         btnSettingsY = by;
@@ -121,7 +130,8 @@ public final class BaritoneScreen extends Screen {
 
         button(context, palette, btnGotoX, btnGotoY, btnGotoW, "Go to here", enabled, mouseX, mouseY);
         button(context, palette, btnCancelX, btnCancelY, btnCancelW, "Cancel", enabled, mouseX, mouseY);
-        button(context, palette, btnPauseX, btnPauseY, btnPauseW, "Pause", enabled, mouseX, mouseY);
+        button(context, palette, btnPauseX, btnPauseY, btnPauseW, paused ? "Resume" : "Pause", enabled,
+                mouseX, mouseY);
         button(context, palette, btnSettingsX, btnSettingsY, btnSettingsW, "Settings", true, mouseX, mouseY);
 
         int listTop = by + BTN_H + 12;
@@ -196,26 +206,37 @@ public final class BaritoneScreen extends Screen {
     }
 
     private void renderSettings(DrawContext context, Palette palette, int x, int top, int right, int bottom) {
-        context.drawTextWithShadow(textRenderer, "Baritone settings (read-only preview)", x, top - 10,
-                palette.secondary());
+        context.drawTextWithShadow(textRenderer, "Baritone settings \u00B7 click to edit \u00B7 Enter applies",
+                x, top - 10, palette.secondary());
         List<String> names = service.settingNames();
         if (names.isEmpty()) {
             context.drawTextWithShadow(textRenderer,
                     service.available() ? "no settings exposed" : "Baritone unavailable", x, top, palette.textDim());
             return;
         }
-        int y = top;
-        for (String name : names) {
-            if (y + 11 > bottom) {
+        // Keep the selected row inside the visible window when the list scrolls.
+        int rows = Math.max(1, (bottom - top) / SETTINGS_ROW_H);
+        settingsScroll = Math.max(0, Math.min(settingsScroll, Math.max(0, names.size() - rows)));
+
+        for (int i = settingsScroll; i < names.size(); i++) {
+            int y = top + (i - settingsScroll) * SETTINGS_ROW_H;
+            if (y + SETTINGS_ROW_H > bottom) {
                 break;
             }
-            context.drawTextWithShadow(textRenderer, name, x, y, palette.text());
-            String value = service.getSetting(name);
+            String name = names.get(i);
+            boolean selected = name.equals(editName);
+            RenderUtil.roundedPanel(context, x, y, right - x, SETTINGS_ROW_H - 2, palette.radius(3),
+                    selected ? palette.panelHover() : palette.card(),
+                    selected ? palette.primary() : palette.borderSoft());
+            context.drawTextWithShadow(textRenderer, name, x + 6, y + 3, palette.text());
+
+            String value = selected && editValue != null ? editValue : service.getSetting(name);
             if (value != null) {
-                context.drawTextWithShadow(textRenderer, value,
-                        right - textRenderer.getWidth(value), y, palette.textDim());
+                String shown = selected ? value + "_" : value;
+                context.drawTextWithShadow(textRenderer, shown,
+                        right - 8 - textRenderer.getWidth(shown), y + 3,
+                        selected ? palette.primary() : palette.textDim());
             }
-            y += 11;
         }
     }
 
@@ -251,15 +272,57 @@ public final class BaritoneScreen extends Screen {
             return true;
         }
         if (inButton(x, y, btnPauseX, btnPauseY, btnPauseW) && service.available()) {
-            service.pause();
-            setStatus("Paused");
+            boolean paused = service.status().paused();
+            String error = paused ? service.resume() : service.pause();
+            setStatus(error == null ? (paused ? "Resumed" : "Paused") : error);
             return true;
         }
         if (inButton(x, y, btnSettingsX, btnSettingsY, btnSettingsW)) {
             showSettings = !showSettings;
+            if (!showSettings) {
+                editName = null;
+                editValue = null;
+            }
+            return true;
+        }
+        if (showSettings && service.available() && y >= settingsListTop() && y <= settingsListBottom()) {
+            int index = settingsScroll + (y - settingsListTop()) / SETTINGS_ROW_H;
+            List<String> names = service.settingNames();
+            if (index >= 0 && index < names.size()) {
+                selectSetting(names.get(index));
+            }
             return true;
         }
         return super.mouseClicked(click, doubled);
+    }
+
+    /** The top y of the settings/history list region, recomputed to match render(). */
+    private int settingsListTop() {
+        return 30 + 40 + infoLines(service.status()).size() * 11 + 8 + BTN_H + 12;
+    }
+
+    private int settingsListBottom() {
+        return height - 30 - 22;
+    }
+
+    private void selectSetting(String name) {
+        editName = name;
+        String current = service.getSetting(name);
+        editValue = current == null ? "" : current;
+        setStatus("Editing " + name + " \u2014 type a value, Enter applies");
+    }
+
+    /** Applies the value in the edit field through the service, reporting the result inline. */
+    private void applySetting() {
+        if (editName == null) {
+            return;
+        }
+        String error = service.setSetting(editName, editValue);
+        if (error == null) {
+            setStatus("Set " + editName + " = " + editValue);
+        } else {
+            setStatus(error);
+        }
     }
 
     private static boolean inButton(int mx, int my, int x, int y, int w) {
@@ -269,9 +332,51 @@ public final class BaritoneScreen extends Screen {
     @Override
     public boolean keyPressed(KeyInput input) {
         if (input.key() == GLFW.GLFW_KEY_ESCAPE) {
+            if (editName != null) {
+                editName = null;
+                editValue = null;
+                return true;
+            }
             close();
             return true;
         }
+        if (editName != null) {
+            if (input.key() == GLFW.GLFW_KEY_ENTER || input.key() == GLFW.GLFW_KEY_KP_ENTER) {
+                applySetting();
+                return true;
+            }
+            if (input.key() == GLFW.GLFW_KEY_BACKSPACE) {
+                if (editValue != null && !editValue.isEmpty()) {
+                    editValue = editValue.substring(0, editValue.length() - 1);
+                }
+                return true;
+            }
+            // While editing, swallow other keys so they do not trigger the screen's shortcuts.
+            return true;
+        }
         return super.keyPressed(input);
+    }
+
+    @Override
+    public boolean charTyped(CharInput input) {
+        if (editName != null) {
+            String typed = input.asString();
+            if (!typed.isEmpty() && typed.charAt(0) >= ' ') {
+                editValue = (editValue == null ? "" : editValue) + typed;
+            }
+            return true;
+        }
+        return super.charTyped(input);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (showSettings) {
+            int rows = Math.max(1, (settingsListBottom() - settingsListTop()) / SETTINGS_ROW_H);
+            int max = Math.max(0, service.settingNames().size() - rows);
+            settingsScroll = Math.max(0, Math.min(max, settingsScroll - (int) Math.signum(verticalAmount)));
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
 }

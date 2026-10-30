@@ -79,8 +79,28 @@ public interface BaritoneBridge {
     /** Cancels the current goal/path. Never throws. */
     void cancel();
 
-    /** Pauses pathing when Baritone supports it. Never throws. */
-    void pause();
+    /**
+     * Requests a pause of whatever Baritone is currently doing.
+     *
+     * <p>Baritone's pause is a <em>registered process</em> that returns
+     * {@code PathingCommandType.REQUEST_PAUSE} while a flag is set; there is no public method on
+     * {@code IPathingBehavior} to trigger it (the concrete {@code requestPause()} is not exposed
+     * on the API interface). The supported way to pause - the same one Baritone's own
+     * {@code #pause} command uses - is to run that command through Baritone's command manager.
+     * This is deliberately <b>not</b> a cancel: a pause is resumable, a cancel is not.
+     *
+     * @return true when the pause request was issued
+     * @throws BaritoneException when Baritone is unavailable
+     */
+    boolean pause();
+
+    /**
+     * Resumes Baritone after a {@link #pause()}, via Baritone's own {@code #resume} command.
+     *
+     * @return true when the resume request was issued
+     * @throws BaritoneException when Baritone is unavailable
+     */
+    boolean resume();
 
     /**
      * Writes one Baritone setting through its public {@code Setting} API.

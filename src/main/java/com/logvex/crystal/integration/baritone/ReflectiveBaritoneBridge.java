@@ -24,6 +24,8 @@ import java.util.Map;
  *       estimatedTicksToGoal() : Optional&lt;Double&gt;
  *   IBaritone.getPathingControlManager() -> IPathingControlManager
  *       mostRecentCommand() : Optional&lt;PathingCommand&gt;  (commandType == REQUEST_PAUSE =&gt; paused)
+ *   IBaritone.getCommandManager() -> ICommandManager.execute(String) : boolean
+ *       (the supported way to run Baritone's own {@code pause}/{@code resume} commands)
  *   IBaritone.getFollowProcess()      -> IFollowProcess.follow(Predicate) / cancel()
  *   baritone.api.pathing.goals.GoalBlock(int,int,int) / GoalNear(BlockPos,int) / GoalXZ(int,int)
  *   baritone.api.Settings.byLowerName : Map&lt;String, Setting&lt;?&gt;&gt;  (Setting.value is a public field)
@@ -137,12 +139,13 @@ public final class ReflectiveBaritoneBridge implements BaritoneBridge {
             int pathLength = pathLength(pathing);
             int ticksToGoal = estimatedTicksToGoal(pathing);
             boolean paused = isPaused(baritone);
+            boolean safeToCancel = isSafeToCancel(baritone);
 
             String statusText = buildStatusText(hasGoal, goalType, goalDetail, isPathing, calculating, paused,
                     ticksToGoal);
             return new BaritoneStatus(true, probe.version(), "", hasGoal, goalType, goalDetail,
                     goalPos[0], goalPos[1], goalPos[2],
-                    isPathing, calculating, hasPath, pathLength, ticksToGoal, paused, false, statusText);
+                    isPathing, calculating, hasPath, pathLength, ticksToGoal, paused, safeToCancel, statusText);
         } catch (RuntimeException e) {
             // A status read must never break the caller; report it as unavailable with the reason.
             return BaritoneStatus.unavailable("Baritone status read failed: " + e.getMessage());
@@ -398,18 +401,58 @@ public final class ReflectiveBaritoneBridge implements BaritoneBridge {
     }
 
     @Override
-    public void pause() {
-        if (!probe().available()) {
-            return;
-        }
+    public boolean pause() {
+        requireAvailable();
+        return executeBaritoneCommand("pause");
+    }
+
+    @Override
+    public boolean resume() {
+        requireAvailable();
+        return executeBaritoneCommand("resume");
+    }
+
+    /**
+     * Runs one of Baritone's own chat commands through its command manager
+     * ({@code ICommandManager.execute(String)}), which is the supported way to reach behaviour
+     * that is not on the public behaviour/process interfaces - notably {@code pause}/{@code resume}.
+     * The command string is a fixed literal supplied by this bridge; nothing here is user input,
+     * so no arbitrary command is ever executed from configuration or the GUI.
+     *
+     * @return true when Baritone accepted and ran the command
+     * @throws BaritoneException when the command could not be dispatched
+     */
+    private boolean executeBaritoneCommand(String command) {
         try {
             Object baritone = primaryBaritone();
+            Object manager = BaritoneReflection.call(
+                    BaritoneReflection.method(baritone.getClass(), "getCommandManager"), baritone);
+            Object accepted = BaritoneReflection.call(
+                    BaritoneReflection.method(manager.getClass(), "execute", String.class), manager, command);
+            return Boolean.TRUE.equals(accepted);
+        } catch (RuntimeException e) {
+            throw new BaritoneException("Baritone could not run '" + command + "': " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Best-effort read of {@code PathingBehavior.isSafeToCancel()}. The method exists on the
+     * concrete class but not on the {@code IPathingBehavior} interface, so it is looked up on the
+     * runtime type and treated as {@code true} when unavailable: the caller uses this only to
+     * decide whether a pause can take effect immediately, never to gate a destructive action.
+     */
+    private boolean isSafeToCancel(Object baritone) {
+        try {
             Object pathing = BaritoneReflection.call(
                     BaritoneReflection.method(baritone.getClass(), "getPathingBehavior"), baritone);
-            BaritoneReflection.call(
-                    BaritoneReflection.method(pathing.getClass(), "cancelEverything"), pathing);
+            if (!BaritoneReflection.hasMethod(pathing.getClass(), "isSafeToCancel")) {
+                return true;
+            }
+            Object safe = BaritoneReflection.call(
+                    BaritoneReflection.method(pathing.getClass(), "isSafeToCancel"), pathing);
+            return !(safe instanceof Boolean b) || b;
         } catch (RuntimeException e) {
-            // Best-effort.
+            return true;
         }
     }
 

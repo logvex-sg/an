@@ -672,7 +672,20 @@ public final class CommandManager {
                 }
             }
             case "cancel", "stop" -> service.cancel();
-            case "pause" -> service.pause();
+            case "pause" -> {
+                String error = service.pause();
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "resume", "unpause" -> {
+                String error = service.resume();
+                if (error != null) {
+                    client.notify(error, NotificationLevel.ERROR);
+                }
+            }
+            case "paused" -> client.notify(service.paused() ? "Baritone is paused" : "Baritone is not paused",
+                    NotificationLevel.INFO);
             case "set" -> {
                 if (args.size() < 3) {
                     client.notify("Usage: ; baritone set <setting> <value>", NotificationLevel.WARN);
@@ -698,7 +711,8 @@ public final class CommandManager {
                     client.notify("  " + names.get(i), NotificationLevel.INFO);
                 }
             }
-            default -> client.notify("Usage: ; baritone <status|gui|goto|near|wp|here|cancel|pause|set|settings>",
+            default -> client.notify(
+                    "Usage: ; baritone <status|gui|goto|near|wp|here|cancel|pause|resume|paused|set|settings>",
                     NotificationLevel.WARN);
         }
     }
@@ -1624,7 +1638,7 @@ public final class CommandManager {
                 "; profile <list|save|load|delete|starters|gui> [name]",
                 "; favorite <module>",
                 "; waypoint <add|remove|list|clear> [name] [x y z]",
-                "; baritone <status|gui|goto <x y z>|near <x y z> [r]|wp <name>|here|cancel|pause|set|settings>",
+                "; baritone <status|gui|goto <x y z>|near <x y z> [r]|wp <name>|here|cancel|pause|resume|paused|set|settings>",
                 "; world | entities <list|count|search <text>> | browser",
                 "; notifications <list|history|clear|sound|duration|scale|position|duplicates|level|test>",
                 "; context <on|off|list|add|remove|clear|cooldown>",

@@ -32,6 +32,9 @@ class BaritoneServiceTest {
         final Map<String, String> settings = new java.util.LinkedHashMap<>();
         int cancelCount;
         int pauseCount;
+        int resumeCount;
+        boolean pauseAccepted = true;
+        boolean resumeAccepted = true;
         String commandForResult;
 
         @Override
@@ -68,8 +71,15 @@ class BaritoneServiceTest {
         }
 
         @Override
-        public void pause() {
+        public boolean pause() {
             pauseCount++;
+            return pauseAccepted;
+        }
+
+        @Override
+        public boolean resume() {
+            resumeCount++;
+            return resumeAccepted;
         }
 
         @Override
@@ -201,6 +211,64 @@ class BaritoneServiceTest {
         bridge.status = idleStatus();
         service.poll(2_000);
         assertFalse(service.consumeGoalReached(), "a cancelled goal must not fire an arrival");
+    }
+
+    @Test
+    void pauseDelegatesToBridgeAndReportsSuccess() {
+        FakeBridge bridge = new FakeBridge();
+        BaritoneService service = new BaritoneService(bridge);
+        service.probeBlocking();
+
+        assertNull(service.pause());
+        assertEquals(1, bridge.pauseCount);
+        assertEquals(0, bridge.cancelCount, "a pause must not cancel");
+    }
+
+    @Test
+    void resumeDelegatesToBridgeAndReportsSuccess() {
+        FakeBridge bridge = new FakeBridge();
+        BaritoneService service = new BaritoneService(bridge);
+        service.probeBlocking();
+
+        assertNull(service.resume());
+        assertEquals(1, bridge.resumeCount);
+    }
+
+    @Test
+    void rejectedPauseIsReportedAsError() {
+        FakeBridge bridge = new FakeBridge();
+        bridge.pauseAccepted = false;
+        BaritoneService service = new BaritoneService(bridge);
+        service.probeBlocking();
+
+        assertNotNull(service.pause());
+        assertEquals(1, bridge.pauseCount);
+    }
+
+    @Test
+    void pauseAndResumeAreUnavailableWithoutBaritone() {
+        FakeBridge bridge = new FakeBridge();
+        bridge.probeResult = BaritoneBridge.Availability.no("Baritone is not installed");
+        BaritoneService service = new BaritoneService(bridge);
+        service.probeBlocking();
+
+        assertNotNull(service.pause());
+        assertNotNull(service.resume());
+        assertEquals(0, bridge.pauseCount);
+        assertEquals(0, bridge.resumeCount);
+    }
+
+    @Test
+    void pausedReflectsLatestStatus() {
+        FakeBridge bridge = new FakeBridge();
+        BaritoneService service = new BaritoneService(bridge);
+        service.probeBlocking();
+        assertFalse(service.paused());
+
+        bridge.status = new BaritoneStatus(true, "1.10", "", true, "GoalBlock", "1 2 3",
+                1, 2, 3, false, false, true, 10, 40, true, true, "block 1 2 3 \u00B7 paused");
+        service.poll(1_000);
+        assertTrue(service.paused());
     }
 
     @Test

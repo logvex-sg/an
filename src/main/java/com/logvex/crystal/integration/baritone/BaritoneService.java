@@ -243,18 +243,58 @@ public final class BaritoneService {
         }
     }
 
-    /** Pauses pathing when supported. Never throws. */
-    public void pause() {
+    /**
+     * Pauses Baritone through its own {@code pause} command. Never throws; a failure is reported
+     * to the user. Distinct from {@link #cancel()}: a pause is resumable with {@link #resume()}.
+     *
+     * @return null on success, or a user-facing error message
+     */
+    public String pause() {
         if (!requireAvailable()) {
-            return;
+            return unavailableReason;
         }
         try {
-            bridge.pause();
+            boolean accepted = bridge.pause();
+            if (!accepted) {
+                recordAction("pause", "Baritone rejected the pause request");
+                return "Baritone rejected the pause request";
+            }
             recordAction("pause", null);
-            notify("Baritone: paused", NotificationLevel.INFO);
+            notify("Baritone: paused \u2661", NotificationLevel.INFO);
+            return null;
         } catch (RuntimeException e) {
             recordAction("pause", e.getMessage());
+            return e.getMessage();
         }
+    }
+
+    /**
+     * Resumes Baritone after a {@link #pause()} through its own {@code resume} command.
+     *
+     * @return null on success, or a user-facing error message
+     */
+    public String resume() {
+        if (!requireAvailable()) {
+            return unavailableReason;
+        }
+        try {
+            boolean accepted = bridge.resume();
+            if (!accepted) {
+                recordAction("resume", "Baritone rejected the resume request");
+                return "Baritone rejected the resume request";
+            }
+            recordAction("resume", null);
+            notify("Baritone: resumed \u2661", NotificationLevel.INFO);
+            return null;
+        } catch (RuntimeException e) {
+            recordAction("resume", e.getMessage());
+            return e.getMessage();
+        }
+    }
+
+    /** True when Baritone reports a pause is currently in effect. */
+    public boolean paused() {
+        return available && navigation.status().paused();
     }
 
     /**
