@@ -180,6 +180,10 @@ class ModelLoaderTest {
             assertTrue(s.sizeMegabytes() < 600, s.id() + " must stay small");
             assertTrue(s.license().toLowerCase().contains("apache"), s.id() + " needs a permissive licence");
             assertEquals("Q4_K_M", s.quantization());
+            assertTrue(s.hasPinnedHash(), s.id() + " must pin a verified SHA-256");
+            assertTrue(s.sha256().matches("[0-9a-f]{64}"), s.id() + " hash must be lowercase hex");
+            assertTrue(s.url().startsWith("https://"), s.id() + " must download over https");
+            assertTrue(s.sizeBytes() > 0, s.id() + " needs a real size");
         }
         assertNotNull(ModelCatalog.byId(ModelCatalog.defaultId()).orElse(null));
     }

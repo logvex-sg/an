@@ -64,8 +64,9 @@ Models are downloaded on demand from a curated catalogue (`model/ModelCatalog`),
 | `send <id>` | approve and send a queued report |
 | `mailto <id>` | copy a `mailto:` link for a report |
 
-The same surface is reachable from the `AIAssistant` module (69th registered module) and the
-`; ai gui` screen. Module settings mirror `AISettings` one-for-one and persist to `ai.json`.
+The same surface is reachable from the `AIAssistant` module (registered alongside the other
+69 modules) and the `; ai gui` screen. Module settings mirror `AISettings` one-for-one and
+persist to `ai.json`.
 
 ## 5. Persistence
 
@@ -84,7 +85,19 @@ refused). Crash history and the report queue persist under `ai/` via `crash/Cras
   diagnosis is flagged `aiGenerated`, so the UI can label it while the confirmed facts and
   fixes stay authoritative.
 
-## 7. Manual validation still required
+## 7. Phase 7 deliverables
+
+The Phase 7 package ships these documents under `docs/ai/`:
+
+| Document | Contents |
+| --- | --- |
+| `PHASE_7_ARCHITECTURE.md` | Package map, threading model, model lifecycle, crash path, safety boundary. |
+| `PHASE_7_MODEL_EVALUATION.md` | Candidate survey, the selected models, and the **verified** sizes/SHA-256. |
+| `PHASE_7_PRIVACY.md` | Every redaction rule and exactly what a report does and does not contain. |
+| `PHASE_7_PERFORMANCE.md` | Measured micro-benchmarks, thread/memory footprint, and every bound. |
+| `PHASE_7_TESTING.md` | The AI test matrix and the full-suite result. |
+
+## 8. Manual validation still required
 
 These need a live client and cannot run in the pure-logic test source set:
 

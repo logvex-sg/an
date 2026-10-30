@@ -231,7 +231,8 @@ report building) work with no model at all.
 
 The subsystem respects the spec's resource limits: inference runs on one or two daemon threads
 with a bounded queue, never on the game thread, and a request is dropped rather than queued
-without limit. All preferences persist to `ai.json`.
+without limit. All preferences persist to `ai.json`. The Phase 7 design, model evaluation,
+privacy, performance and testing write-ups live in [`docs/ai/`](docs/ai/).
 
 ## Player cosmetics
 

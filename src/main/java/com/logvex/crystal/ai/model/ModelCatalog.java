@@ -9,13 +9,10 @@ import java.util.Optional;
  * chooses an entry and the client downloads exactly that file.
  *
  * <p>Sizes are the upstream published file sizes (rounded); they are re-checked against the
- * real download at fetch time. Hashes are pinned only when they have been verified against the
- * upstream release page — an unpinned entry is size- and format-checked instead, and the UI
- * says so rather than pretending the hash was verified.
+ * real download at fetch time. Each entry pins the SHA-256 verified against the upstream
+ * release, so a download is checksum-verified before it is ever installed or loaded.
  */
 public final class ModelCatalog {
-
-    private static final long MB = 1024L * 1024L;
 
     /**
      * Default entry: the smallest genuinely useful instruct model, ~0.36B parameters, Apache-2.0.
@@ -28,8 +25,8 @@ public final class ModelCatalog {
             "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/"
                     + "SmolLM2-360M-Instruct-Q4_K_M.gguf",
             "SmolLM2-360M-Instruct-Q4_K_M.gguf",
-            258L * MB,
-            "",
+            270_590_880L,
+            "2fa3f013dcdd7b99f9b237717fa0b12d75bbb89984cc1274be1471a465bac9c2",
             "Apache-2.0",
             "Q4_K_M",
             "0.36B",
@@ -43,8 +40,8 @@ public final class ModelCatalog {
             "https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/"
                     + "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
             "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
-            398L * MB,
-            "",
+            397_808_192L,
+            "6eb923e7d26e9cea28811e1a8e852009b21242fb157b26149d3b188f3a8c8653",
             "Apache-2.0",
             "Q4_K_M",
             "0.5B",

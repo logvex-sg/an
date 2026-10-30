@@ -34,21 +34,28 @@ import org.lwjgl.glfw.GLFW;
 public final class AIAssistantScreen extends Screen {
 
     private enum Page {
-        CRASHES, BARITONE, MODEL, REPORTS
+        OVERVIEW, CRASHES, BARITONE, MODEL, REPORTS, SETTINGS
     }
 
     private static final int TAB_H = 18;
     private static final int ROW_H = 16;
+    private static final int SETTING_ROW_H = 14;
+
+    /** A boolean preference row on the Settings page. */
+    private record ToggleRow(String label, java.util.function.BooleanSupplier get,
+                             java.util.function.Consumer<Boolean> set) {
+    }
 
     private final ThemeManager theme;
     private final CrystalClient client;
 
-    private Page page = Page.CRASHES;
+    private Page page = Page.OVERVIEW;
     private int selectedCrash = -1;
     private int selectedReport = -1;
     private int scroll;
     private String status = "";
     private long statusAt;
+    private int settingsTop;
 
     // Hit boxes captured during render.
     private final int[] tabX = new int[Page.values().length];
@@ -113,10 +120,12 @@ public final class AIAssistantScreen extends Screen {
         actionW = 96;
 
         switch (page) {
+            case OVERVIEW -> renderOverview(context, palette, mouseX, mouseY);
             case CRASHES -> renderCrashes(context, palette, mouseX, mouseY);
             case BARITONE -> renderBaritone(context, palette, mouseX, mouseY);
             case MODEL -> renderModel(context, palette, mouseX, mouseY);
             case REPORTS -> renderReports(context, palette, mouseX, mouseY);
+            case SETTINGS -> renderSettings(context, palette, mouseX, mouseY);
         }
 
         if (!status.isEmpty() && System.currentTimeMillis() - statusAt < 5000) {
@@ -135,10 +144,12 @@ public final class AIAssistantScreen extends Screen {
         int cx = x;
         for (int i = 0; i < pages.length; i++) {
             String label = switch (pages[i]) {
-                case CRASHES -> "\u2661 Crashes";
+                case OVERVIEW -> "\u2661 Overview";
+                case CRASHES -> "\u2620 Crashes";
                 case BARITONE -> "\u2726 Baritone";
                 case MODEL -> "\u2727 Model";
                 case REPORTS -> "\u2709 Reports";
+                case SETTINGS -> "\u2699 Settings";
             };
             int w = textRenderer.getWidth(label) + 16;
             tabX[i] = cx;
@@ -360,7 +371,115 @@ public final class AIAssistantScreen extends Screen {
         button(context, palette, bx, actionY, actionW, "Delete", true, mouseX, mouseY);
     }
 
+    // ------------------------------------------------------------------ settings
+
+    /** The boolean preferences shown on the Settings page, each writing straight to AISettings. */
+    private List<ToggleRow> settingRows() {
+        var s = client.aiSettings();
+        return List.of(
+                new ToggleRow("Enable AI assistant", () -> s.enabled, v -> s.enabled = v),
+                new ToggleRow("Crash detection", () -> s.crashDetection, v -> s.crashDetection = v),
+                new ToggleRow("Local AI crash analysis", () -> s.localAnalysis, v -> s.localAnalysis = v),
+                new ToggleRow("Keep bug-report queue", () -> s.reportQueue, v -> s.reportQueue = v),
+                new ToggleRow("Allow sending reports by email", () -> s.emailEnabled, v -> s.emailEnabled = v),
+                new ToggleRow("Ask before sending each report", () -> s.askBeforeSending, v -> s.askBeforeSending = v),
+                new ToggleRow("Include environment details", () -> s.includeEnvironment, v -> s.includeEnvironment = v),
+                new ToggleRow("Include relevant logs", () -> s.includeLogs, v -> s.includeLogs = v),
+                new ToggleRow("Keep local crash history", () -> s.keepLocalHistory, v -> s.keepLocalHistory = v));
+    }
+
+    private void renderSettings(DrawContext context, Palette palette, int mouseX, int mouseY) {
+        List<ToggleRow> rows = settingRows();
+        int columns = 2;
+        int perColumn = (rows.size() + columns - 1) / columns;
+        int colW = (contentRight - contentLeft) / columns - 8;
+        settingsTop = contentTop;
+        for (int i = 0; i < rows.size(); i++) {
+            ToggleRow row = rows.get(i);
+            int col = i / perColumn;
+            int line = i % perColumn;
+            int x = contentLeft + col * (colW + 16);
+            int y = settingsTop + line * (SETTING_ROW_H + 2);
+            boolean on = row.get().getAsBoolean();
+            boolean hovered = mouseX >= x && mouseX <= x + colW && mouseY >= y && mouseY <= y + SETTING_ROW_H;
+            context.drawTextWithShadow(textRenderer, row.label(), x, y + 3,
+                    hovered ? palette.primary() : palette.text());
+            String state = on ? "on" : "off";
+            int pillW = 30;
+            int pillX = x + colW - pillW;
+            RenderUtil.roundedPanel(context, pillX, y, pillW, SETTING_ROW_H - 2, palette.radius(3),
+                    on ? palette.enabled() : palette.card(),
+                    on ? palette.primary() : palette.borderSoft());
+            context.drawTextWithShadow(textRenderer, state,
+                    pillX + (pillW - textRenderer.getWidth(state)) / 2, y + 3,
+                    on ? palette.panel() : palette.textDim());
+        }
+
+        int y = settingsTop + perColumn * (SETTING_ROW_H + 2) + 6;
+        y = line(context, palette, contentLeft, y, "Report size cap: " + client.aiSettings().maxReportKilobytes
+                + " KB \u00B7 history " + client.aiSettings().maxHistory + " \u00B7 idle unload "
+                + client.aiSettings().idleUnloadMinutes + " min", palette.textDim());
+        y = line(context, palette, contentLeft, y, "Inference threads " + client.aiSettings().inferenceThreads
+                + " \u00B7 queue " + client.aiSettings().pendingQueueLimit
+                + " \u00B7 timeout " + client.aiSettings().inferenceTimeoutSeconds + "s", palette.textDim());
+        wrapped(context, palette, contentLeft, y, contentRight - contentLeft,
+                "SMTP is user-supplied and never bundled; with none configured, reports export as a mailto link. "
+                        + "Crash detection stays on even when the AI model is disabled.",
+                palette.textDim());
+
+        int bx = actionX;
+        button(context, palette, bx, actionY, actionW, "Delete reports", true, mouseX, mouseY);
+        bx += actionW + 6;
+        button(context, palette, bx, actionY, actionW, "Clear crashes", true, mouseX, mouseY);
+        bx += actionW + 6;
+        button(context, palette, bx, actionY, actionW, "Save settings", true, mouseX, mouseY);
+    }
+
+    private void settingsClick(int x, int y) {
+        List<ToggleRow> rows = settingRows();
+        int columns = 2;
+        int perColumn = (rows.size() + columns - 1) / columns;
+        int colW = (contentRight - contentLeft) / columns - 8;
+        int rowBottom = settingsTop + perColumn * (SETTING_ROW_H + 2);
+        if (y >= settingsTop && y < rowBottom) {
+            int col = x < contentLeft + colW + 8 ? 0 : 1;
+            int line = (y - settingsTop) / (SETTING_ROW_H + 2);
+            int index = col * perColumn + line;
+            if (index >= 0 && index < rows.size()) {
+                ToggleRow row = rows.get(index);
+                row.set().accept(!row.get().getAsBoolean());
+                client.applyAiSettings();
+                setStatus(row.label() + " updated");
+                return;
+            }
+        }
+        if (inButton(x, y, actionX, actionY, actionW)) {
+            client.reportService().clear();
+            setStatus("Cleared the report queue");
+            return;
+        }
+        if (inButton(x, y, actionX + actionW + 6, actionY, actionW)) {
+            client.crashMonitor().clear();
+            setStatus("Cleared the crash history");
+            return;
+        }
+        if (inButton(x, y, actionX + 2 * (actionW + 6), actionY, actionW)) {
+            client.applyAiSettings();
+            setStatus("Settings saved");
+        }
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    private static String formatBytes(long bytes) {
+        if (bytes < 0) {
+            return "-";
+        }
+        if (bytes < 1024L * 1024L) {
+            return (bytes / 1024L) + " KB";
+        }
+        return String.format("%.0f MB", bytes / (1024.0 * 1024.0));
+    }
 
     private int line(DrawContext context, Palette palette, int x, int y, String text, int color) {
         context.drawTextWithShadow(textRenderer, text, x, y, color);
@@ -428,12 +547,94 @@ public final class AIAssistantScreen extends Screen {
         }
 
         switch (page) {
+            case OVERVIEW -> overviewClick(x, y);
             case CRASHES -> crashClick(x, y);
             case BARITONE -> baritoneClick(x, y);
             case MODEL -> modelClick(x, y);
             case REPORTS -> reportClick(x, y);
+            case SETTINGS -> settingsClick(x, y);
         }
         return super.mouseClicked(click, doubled);
+    }
+
+    // ------------------------------------------------------------------ overview
+
+    private void renderOverview(DrawContext context, Palette palette, int mouseX, int mouseY) {
+        MiniAIManager ai = client.ai();
+        List<CrashRecord> crashes = client.crashMonitor().history();
+        int reports = client.reportService().reports().size();
+        int y = contentTop;
+
+        y = line(context, palette, contentLeft, y, "Assistant: "
+                + (client.aiSettings().enabled ? "enabled" : "disabled")
+                + " \u00B7 local analysis " + (client.aiSettings().localAnalysis ? "on" : "off"),
+                palette.primary());
+        y = line(context, palette, contentLeft, y, "Model: " + ai.currentSpec().displayName()
+                + " (" + Math.round(ai.currentSpec().sizeMegabytes()) + " MB)", palette.text());
+        y = line(context, palette, contentLeft, y, "State: " + ai.state().label()
+                + (ai.isLoaded() ? " \u00B7 " + formatBytes(ai.loadedBytes()) + " in memory" : ""), palette.text());
+        y = line(context, palette, contentLeft, y, "Inference: " + ai.activeCount() + " active \u00B7 "
+                + ai.queueDepth() + "/" + ai.queueLimit() + " queued \u00B7 " + ai.completedCount()
+                + " done \u00B7 " + ai.rejectedCount() + " dropped", palette.text());
+        if (ai.lastLatencyMillis() >= 0) {
+            y = line(context, palette, contentLeft, y,
+                    "Last inference: " + ai.lastLatencyMillis() + " ms", palette.textDim());
+        }
+        if (!ai.lastError().isBlank()) {
+            y = wrapped(context, palette, contentLeft, y, contentRight - contentLeft,
+                    "Last error: " + ai.lastError(), palette.danger());
+        }
+        y += 4;
+        y = line(context, palette, contentLeft, y, "Crashes captured: " + crashes.size()
+                + " \u00B7 reports queued: " + reports, palette.secondary());
+
+        if (!crashes.isEmpty()) {
+            CrashRecord latest = crashes.get(crashes.size() - 1);
+            Diagnosis diagnosis = client.crashAnalyzer().diagnose(latest);
+            y += 4;
+            y = line(context, palette, contentLeft, y, "Latest: " + latest.category().label()
+                    + " \u00B7 " + latest.severity().label() + " \u00B7 " + shortTime(latest.timestampMillis()),
+                    palette.text());
+            y = wrapped(context, palette, contentLeft, y, contentRight - contentLeft,
+                    "Diagnosis (" + diagnosis.confidence().label() + "): " + diagnosis.likelyCause(),
+                    palette.textDim());
+        }
+
+        int bx = actionX;
+        button(context, palette, bx, actionY, actionW, "Open crashes", true, mouseX, mouseY);
+        bx += actionW + 6;
+        button(context, palette, bx, actionY, actionW, "Analyse latest", !crashes.isEmpty(), mouseX, mouseY);
+        bx += actionW + 6;
+        button(context, palette, bx, actionY, actionW,
+                client.aiSettings().enabled ? "Disable AI" : "Enable AI", true, mouseX, mouseY);
+    }
+
+    private void overviewClick(int x, int y) {
+        if (inButton(x, y, actionX, actionY, actionW)) {
+            page = Page.CRASHES;
+            return;
+        }
+        if (inButton(x, y, actionX + actionW + 6, actionY, actionW)) {
+            List<CrashRecord> crashes = client.crashMonitor().history();
+            if (crashes.isEmpty()) {
+                setStatus("No crash captured yet");
+                return;
+            }
+            CrashRecord latest = crashes.get(crashes.size() - 1);
+            Diagnosis diagnosis = client.crashAnalyzer().diagnose(latest);
+            if (client.aiSettings().localAnalysis) {
+                client.askAiAboutCrash(latest, diagnosis);
+                setStatus("Asking the local model\u2026");
+            } else {
+                setStatus("Cause (" + diagnosis.confidence().label() + "): " + diagnosis.likelyCause());
+            }
+            return;
+        }
+        if (inButton(x, y, actionX + 2 * (actionW + 6), actionY, actionW)) {
+            client.aiSettings().enabled = !client.aiSettings().enabled;
+            client.applyAiSettings();
+            setStatus(client.aiSettings().enabled ? "AI enabled" : "AI disabled");
+        }
     }
 
     private void crashClick(int x, int y) {
