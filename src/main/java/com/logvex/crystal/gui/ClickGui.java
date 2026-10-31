@@ -1,5 +1,7 @@
 package com.logvex.crystal.gui;
 
+import com.logvex.crystal.compat.Compat;
+
 import com.logvex.crystal.client.CrystalClient;
 import com.logvex.crystal.config.ConfigManager;
 import com.logvex.crystal.config.FavoritesStore;
@@ -63,6 +65,9 @@ public final class ClickGui extends Screen {
     private static final int KEYBIND_BUTTON_INSET = 122;
     private static final int PROFILE_BUTTON_W = 44;
     private static final int PROFILE_BUTTON_INSET = 62;
+    /** The Command Center shortcut sits left of the keybinds/profiles buttons. */
+    private static final int CENTER_BUTTON_W = 48;
+    private static final int CENTER_BUTTON_INSET = 176;
     private static final int CARD_HEIGHT = 22;
     private static final int ROW_HEIGHT = 16;
 
@@ -114,7 +119,12 @@ public final class ClickGui extends Screen {
     private int listBottom;
 
     private final Animator openAnim = new Animator(0f, 0.22f);
-    private final Animator hoverAnim = new Animator(0f, 0.3f);
+    /**
+     * Eased 0..1 transitions for keyed, position-stable UI elements (card hover, toggle slide),
+     * so a flip or hover reads as motion rather than a snap. Keyed by on-screen position and
+     * bounded, because elements are redrawn every frame and the panel scrolls.
+     */
+    private final java.util.Map<Long, Animator> uiAnims = new java.util.HashMap<>();
     private final com.logvex.crystal.util.GradientBackground gradient = new com.logvex.crystal.util.GradientBackground();
 
     // Window position, as a pixel offset from the default margin. Persisted in the theme
@@ -194,8 +204,8 @@ public final class ClickGui extends Screen {
         // resize the whole interface without touching a single layout constant.
         float scale = uiScale();
         var matrices = context.getMatrices();
-        matrices.pushMatrix();
-        matrices.scale(scale, scale);
+        Compat.matrixPush(matrices);
+        Compat.matrixScale(matrices, scale);
         int virtualWidth = vw();
         int virtualHeight = vh();
         int virtualMouseX = (int) Math.round(mouseX / scale);
@@ -208,7 +218,7 @@ public final class ClickGui extends Screen {
         panelRight = virtualWidth - margin + panelOffsetX;
         panelBottom = virtualHeight - margin - animOffset + panelOffsetY;
         if (panelBottom <= panelTop) {
-            matrices.popMatrix();
+            Compat.matrixPop(matrices);
             return;
         }
 
@@ -247,7 +257,7 @@ public final class ClickGui extends Screen {
             drawContextMenu(context, palette, virtualMouseX, virtualMouseY);
         }
         drawCursor(context, palette, virtualMouseX, virtualMouseY);
-        matrices.popMatrix();
+        Compat.matrixPop(matrices);
 
         // Tooltips and the context menu live in real screen space so they sit above
         // everything regardless of UI scale.
@@ -356,7 +366,8 @@ public final class ClickGui extends Screen {
         // Active module counter, right of the page label.
         context.drawTextWithShadow(textRenderer, modules.enabledCount() + " active",
                 subX + textRenderer.getWidth(sub) + 12, panelTop + 9, palette.secondary());
-        // Header shortcut buttons: keybinds, profiles, then the close button at the far right.
+        // Header shortcut buttons: command center, keybinds, profiles, then the close button.
+        drawHeaderButton(context, palette, "center", panelRight - CENTER_BUTTON_INSET, panelTop + 5, CENTER_BUTTON_W);
         drawHeaderButton(context, palette, "keybinds", panelRight - KEYBIND_BUTTON_INSET, panelTop + 5, KEYBIND_BUTTON_W);
         drawHeaderButton(context, palette, "profiles", panelRight - PROFILE_BUTTON_INSET, panelTop + 5, PROFILE_BUTTON_W);
         context.drawTextWithShadow(textRenderer, "\u2715", panelRight - 18, panelTop + 5, palette.textDim());
@@ -486,10 +497,16 @@ public final class ClickGui extends Screen {
         int w = right - x - 4;
         boolean hovered = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + CARD_HEIGHT;
         boolean enabled = module.isEnabled();
-        // Animate a soft hover lift.
-        hoverAnim.setTarget(hovered ? 1f : 0f);
-        int fill = enabled ? ColorUtil.withAlpha(palette.primary(), 46) : (hovered ? palette.panelHover() : palette.card());
-        RenderUtil.roundedPanel(context, x, y, w, CARD_HEIGHT, r(6), fill, enabled ? palette.border() : palette.borderSoft());
+        // Eased hover lift: the card fill and outline brighten rather than snapping, and a soft
+        // glow fades in. Reads as polish without competing with the enabled state for attention.
+        float hover = ease(key(x, y), hovered ? 1f : 0f);
+        int fill = enabled ? ColorUtil.withAlpha(palette.primary(), 46)
+                : ColorUtil.lerp(palette.card(), palette.panelHover(), hover);
+        int outline = enabled ? palette.border() : ColorUtil.lerp(palette.borderSoft(), palette.border(), hover);
+        RenderUtil.roundedPanel(context, x, y, w, CARD_HEIGHT, r(6), fill, outline);
+        if (!enabled && hover > 0.02f) {
+            RenderUtil.glow(context, x, y, w, CARD_HEIGHT, r(6), ColorUtil.scaleAlpha(palette.glow(), hover));
+        }
         if (enabled) {
             RenderUtil.glow(context, x, y, w, CARD_HEIGHT, r(6), palette.glow());
             RenderUtil.roundedRect(context, x + 2, y + 3, 3, CARD_HEIGHT - 6, r(2), palette.primary());
@@ -609,11 +626,38 @@ public final class ClickGui extends Screen {
     private void drawToggle(DrawContext context, Palette palette, int x, int y, boolean on, boolean hovered) {
         int w = 26;
         int h = 12;
-        int track = on ? palette.primary() : palette.disabled();
-        RenderUtil.roundedRect(context, x, y, w, h, h / 2, ColorUtil.withAlpha(track, on ? 220 : 150));
+        // The knob eases across and the track cross-fades lavender->pink, so a flip reads as
+        // motion, not a snap. Reduced motion (speed 0) resolves instantly.
+        float t = ease(key(x, y), on ? 1f : 0f);
+        int track = ColorUtil.lerp(palette.disabled(), palette.primary(), t);
+        RenderUtil.roundedRect(context, x, y, w, h, h / 2, ColorUtil.withAlpha(track, 150 + (int) (70 * t)));
         int knobR = h / 2 - 1;
-        int knobX = on ? x + w - knobR - 2 : x + knobR + 2;
+        int knobX = Math.round(x + knobR + 2 + t * (w - 2 * knobR - 4));
         RenderUtil.dot(context, knobX, y + h / 2, knobR, ColorUtil.lighten(track, hovered ? 0.3f : 0.15f));
+    }
+
+    /**
+     * Advances the keyed 0..1 transition at a screen position toward {@code target} and returns
+     * the eased value. Bounded so a long session cannot accumulate one animator per scrolled
+     * position; clearing on overflow just restarts the handful of live transitions.
+     */
+    private float ease(long key, float target) {
+        Animator anim = uiAnims.get(key);
+        if (anim == null) {
+            if (uiAnims.size() > 512) {
+                uiAnims.clear();
+            }
+            anim = new Animator(target);
+            uiAnims.put(key, anim);
+        }
+        anim.setTarget(target);
+        float speed = theme.settings().reducedMotion ? 0f : theme.settings().animationSpeed;
+        return anim.update(com.logvex.crystal.util.FrameClock.deltaMillis(), speed);
+    }
+
+    /** Packs an on-screen (x, y) into a single animator key. */
+    private static long key(int x, int y) {
+        return ((long) x << 32) | (y & 0xFFFFFFFFL);
     }
 
     private int drawSettings(DrawContext context, Palette palette, Module module, int x, int y, int right,
@@ -874,6 +918,11 @@ public final class ClickGui extends Screen {
             close();
             return true;
         }
+        if (button == 0 && inRect(mouseX, mouseY, panelRight - CENTER_BUTTON_INSET, panelTop + 5,
+                CENTER_BUTTON_W, 14)) {
+            openCommandCenterScreen();
+            return true;
+        }
         if (button == 0 && inRect(mouseX, mouseY, panelRight - KEYBIND_BUTTON_INSET, panelTop + 5,
                 KEYBIND_BUTTON_W, 14)) {
             openKeybindScreen();
@@ -910,6 +959,15 @@ public final class ClickGui extends Screen {
         if (bootstrap != null) {
             net.minecraft.client.MinecraftClient.getInstance().setScreen(
                     new ProfileScreen(bootstrap.profiles(), theme));
+        }
+    }
+
+    /** Opens the Command Center from the header shortcut, defaulting to the dashboard. */
+    private void openCommandCenterScreen() {
+        CrystalClient bootstrap = CrystalClient.get();
+        if (bootstrap != null) {
+            net.minecraft.client.MinecraftClient.getInstance().setScreen(
+                    new CommandCenterScreen(bootstrap, bootstrap.commandCenterPreferences().defaultWorkspace));
         }
     }
 
